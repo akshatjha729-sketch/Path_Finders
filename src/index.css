@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+
+  /* High contrast focus ring for WCAG 2.1 AAA SC 2.4.7 & SC 1.4.11 */
+  :focus-visible {
+    outline: 3px solid #fbbf24 !important;
+    outline-offset: 3px !important;
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* High Contrast AAA Theme */
+.high-contrast {
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-card: #121212;
+  --border-color: #facc15;
+  --text-primary: #ffffff;
+  --text-secondary: #fef08a;
+  --accent-color: #facc15;
+  --accent-text: #000000;
+}
+
+.high-contrast button:not(:disabled):hover {
+  filter: brightness(1.2);
+}
+
+/* Screen reader announcer */
+.aria-live-polite {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
