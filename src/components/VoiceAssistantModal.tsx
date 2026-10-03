@@ -17,7 +17,8 @@ import {
   Check,
   Trash2,
   Briefcase,
-  Compass
+  Compass,
+  Globe
 } from 'lucide-react';
 import { VoiceInteraction } from '../types/index.ts';
 
@@ -71,7 +72,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     },
     {
       phrase: '“Summarize”',
-      purpose: 'Triggers Cognitive Load Simplifier (Gemini AI + Local Fallback)',
+      purpose: 'Triggers Cognitive Load Simplifier (NVIDIA AI + Local Fallback)',
       example: '“Summarize”, “Simplify”, “Explain in simple words”',
       icon: <Sparkles className="w-4 h-4 text-purple-400" />
     },
@@ -94,16 +95,28 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       icon: <Eye className="w-4 h-4 text-amber-300" />
     },
     {
-      phrase: '“Jobs” / “Profile” / “Applications”',
-      purpose: 'Fast tab navigation by spoken name in Job Seeker portal',
-      example: '“Jobs”, “Profile”, “My Applications”',
+      phrase: '“Next Tab” / “Previous Tab” (Alt+T)',
+      purpose: 'Cycles forward and backward across tabs in current portal',
+      example: '“Next tab”, “Previous tab”, “Switch tab”, or press Alt+T',
       icon: <Compass className="w-4 h-4 text-amber-400" />
     },
     {
+      phrase: '“Tab 1” / “Tab 2” / “Tab 3” (Alt+1/2/3)',
+      purpose: 'Switches directly to tab by number with voice or shortcut',
+      example: '“Tab 1”, “Tab 2”, “Tab 3”, or press Alt+1, Alt+2, Alt+3',
+      icon: <Compass className="w-4 h-4 text-emerald-400" />
+    },
+    {
+      phrase: '“Jobs” / “Profile” / “Applications”',
+      purpose: 'Direct tab switching by name in Job Seeker portal',
+      example: '“Jobs”, “Profile”, “My Applications”, “Jobs tab”',
+      icon: <Compass className="w-4 h-4 text-sky-400" />
+    },
+    {
       phrase: '“Candidates” / “Requisitions” / “Post a job”',
-      purpose: 'Fast tab navigation by spoken name in Recruiter portal',
+      purpose: 'Direct tab switching by name in Recruiter portal',
       example: '“Candidates”, “Requisitions”, “Post a job”',
-      icon: <Briefcase className="w-4 h-4 text-emerald-400" />
+      icon: <Briefcase className="w-4 h-4 text-purple-400" />
     },
     {
       phrase: 'Alt+M / V (Keyboard)',
@@ -112,9 +125,21 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       icon: <Mic className="w-4 h-4 text-amber-400" />
     },
     {
+      phrase: '“Jobs in India” / “Jobs in USA”',
+      purpose: 'Filters accessible jobs by country or tech hub',
+      example: '“Jobs in India”, “Jobs in Bengaluru”, “Jobs in USA”, “Jobs in Germany”',
+      icon: <Globe className="w-4 h-4 text-emerald-400" />
+    },
+    {
+      phrase: '“Stop” / “Silence”',
+      purpose: 'Instantly silences speech playback or audio narration',
+      example: '“Stop”, “Stop reading”, “Silence”, “Quiet”',
+      icon: <Volume2 className="w-4 h-4 text-rose-400" />
+    },
+    {
       phrase: '“Switch to Recruiter” / “Job Seeker”',
       purpose: 'Hands-free voice portal role switching',
-      example: '“Switch to recruiter”, “Switch to job seeker”',
+      example: '“Switch to Recruiter”, “Job Seeker”, “Recruiter”, “Home”',
       icon: <Briefcase className="w-4 h-4 text-amber-400" />
     }
   ];
