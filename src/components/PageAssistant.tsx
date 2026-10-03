@@ -9,19 +9,18 @@ import {
   User,
   Briefcase,
   FileText,
-  Send,
-  ArrowRight,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
-  HelpCircle,
   Play,
-  RotateCcw,
   Keyboard,
   Compass,
-  Plus
+  Plus,
+  MapPin,
+  CheckCircle2,
+  Send
 } from 'lucide-react';
-import { JobPosting, UserRole } from '../types/index.ts';
+import { JobPosting } from '../types/index.ts';
+import { t } from '../utils/i18n.ts';
 
 export interface PageAssistantProps {
   portalView: 'landing' | 'job_seeker' | 'recruiter';
@@ -38,6 +37,8 @@ export interface PageAssistantProps {
   selectedJob?: JobPosting | null;
   jobsCount: number;
   applicationsCount: number;
+  currentCountryFilter?: string;
+  onCountryFilterChange?: (country: string) => void;
 }
 
 export const PageAssistant: React.FC<PageAssistantProps> = ({
@@ -52,43 +53,41 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
   onExecuteCommand,
   onSpeakText,
   onStopSpeaking,
-  selectedJob,
   jobsCount,
-  applicationsCount
+  applicationsCount,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [manualCmd, setManualCmd] = useState('');
 
-  // Page-specific contextual commands and instructions
+  // Page-specific contextual commands and instructions in English
   const pageContext = useMemo(() => {
     if (portalView === 'landing') {
       return {
-        badge: 'Home Portal Gateway',
+        badge: t('assistantBadgeHome'),
         title: 'Voice Navigation Assistant · First Page',
-        description: 'Choose your portal using voice or keyboard. Say where you want to go.',
-        speakGuideText:
-          'Welcome to VoiceHire AI. On this page, say "Job Seeker" to browse and apply for jobs, or say "Recruiter" to manage job requisitions and review applicants. Press Alt+M or V to toggle microphone.',
+        description: 'Choose your portal using voice or keyboard. Say "Job Seeker" or "Recruiter" to navigate.',
+        speakGuideText: 'Welcome to VoiceHire AI. On this page, say "Job Seeker" to browse and apply for jobs, or say "Recruiter" to manage job requisitions and review applicants. Press Alt+M or V to toggle microphone.',
         commands: [
           {
             phrase: '“Job Seeker”',
             cmd: 'job seeker',
-            desc: 'Opens candidate job search & 1-click application portal',
+            desc: 'Opens candidate job search & 1-click apply portal',
             icon: <User className="w-3.5 h-3.5 text-amber-400" />
           },
           {
             phrase: '“Recruiter”',
             cmd: 'recruiter',
-            desc: 'Opens inclusive recruiter dashboard & applicant review',
+            desc: 'Opens recruiter dashboard & applicant pipeline',
             icon: <Briefcase className="w-3.5 h-3.5 text-sky-400" />
           },
           {
-            phrase: '“Jobs”',
-            cmd: 'jobs',
-            desc: 'Jumps directly to accessible job listings board',
+            phrase: '“Jobs in India”',
+            cmd: 'jobs in india',
+            desc: 'Jumps directly to accessible job listings in India',
             icon: <Search className="w-3.5 h-3.5 text-emerald-400" />
           },
           {
-            phrase: '“High contrast”',
+            phrase: '“High Contrast”',
             cmd: 'high contrast',
             desc: 'Toggles WCAG AAA high contrast color mode',
             icon: <Sparkles className="w-3.5 h-3.5 text-purple-400" />
@@ -100,28 +99,21 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
     if (portalView === 'job_seeker') {
       if (seekerTab === 'jobs') {
         return {
-          badge: 'Job Seeker > Accessible Job Board',
+          badge: t('assistantBadgeJobs'),
           title: 'Job Board Assistant · Voice Search & 1-Click Apply',
-          description: `Browsing ${jobsCount} verified accessible jobs. Search, listen aloud, or apply instantly.`,
-          speakGuideText:
-            `You are on the Accessible Job Board with ${jobsCount} positions available. Say "Search React" to filter by skill. Say "Read job" to listen aloud. Say "Summarize" for cognitive breakdown. Say "Apply now" or press Alt+V to auto-fill. Say "Profile" or "Applications" to switch tabs.`,
+          description: `Browsing ${jobsCount} verified accessible jobs. Search by skill, location, or country.`,
+          speakGuideText: `You are on the Accessible Job Board with ${jobsCount} positions available. Say "Search React" to filter by skill. Say "Read job" to listen aloud. Say "Summarize" for cognitive breakdown. Say "Apply now" or press Alt+V to auto-fill.`,
           commands: [
-            {
-              phrase: '“Search React”',
-              cmd: 'search react',
-              desc: 'Filters jobs matching keyword or technology',
-              icon: <Search className="w-3.5 h-3.5 text-amber-400" />
-            },
             {
               phrase: '“Read job”',
               cmd: 'read job',
-              desc: 'Speaks selected job details and accommodations',
+              desc: 'Speaks selected job details and accommodations aloud',
               icon: <Volume2 className="w-3.5 h-3.5 text-sky-400" />
             },
             {
               phrase: '“Summarize”',
               cmd: 'summarize',
-              desc: 'Gemini AI cognitive breakdown into plain language',
+              desc: 'NVIDIA AI cognitive breakdown into plain language',
               icon: <Sparkles className="w-3.5 h-3.5 text-purple-400" />
             },
             {
@@ -133,20 +125,32 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
             {
               phrase: '“Next job”',
               cmd: 'next job',
-              desc: 'Moves selection to next listing',
-              icon: <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
+              desc: 'Selects the next job listing in the board',
+              icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
             },
             {
-              phrase: '“Profile”',
+              phrase: '“Jobs in India”',
+              cmd: 'jobs in india',
+              desc: 'Filters openings located in India (Bengaluru, Pune, Delhi)',
+              icon: <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+            },
+            {
+              phrase: '“Jobs in USA”',
+              cmd: 'jobs in usa',
+              desc: 'Filters tech roles located in the United States',
+              icon: <Search className="w-3.5 h-3.5 text-sky-400" />
+            },
+            {
+              phrase: '“Next Tab” (Alt+T)',
+              cmd: 'next tab',
+              desc: 'Cycle forward across tabs (Profile, Applications)',
+              icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+            },
+            {
+              phrase: '“Profile” (Alt+2)',
               cmd: 'profile',
               desc: 'Switch to Candidate Profile editor tab',
               icon: <User className="w-3.5 h-3.5 text-amber-400" />
-            },
-            {
-              phrase: '“Applications”',
-              cmd: 'applications',
-              desc: 'Switch to My Applications tracker tab',
-              icon: <FileText className="w-3.5 h-3.5 text-sky-400" />
             },
             {
               phrase: '“Switch to Recruiter”',
@@ -160,12 +164,17 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
 
       if (seekerTab === 'profile') {
         return {
-          badge: 'Job Seeker > Candidate Profile',
+          badge: t('assistantBadgeProfile'),
           title: 'Profile Assistant · Fast Tab Navigation & Save',
           description: 'Manage your assistive preferences, skills, and resume data for 1-click auto-fill.',
-          speakGuideText:
-            'You are in the Candidate Profile Editor. Edit your skills and accessibility accommodations here. Say "Save profile" to save changes. Say "Jobs" to return to the job board, or say "Applications" to view your submissions.',
+          speakGuideText: 'You are in the Candidate Profile Editor. Say "Save profile" to save changes. Say "Next Tab" or "Jobs" to return to the job board, or say "Applications" to view submissions.',
           commands: [
+            {
+              phrase: '“Next Tab” (Alt+T)',
+              cmd: 'next tab',
+              desc: 'Cycle forward to My Applications tab',
+              icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+            },
             {
               phrase: '“Save profile”',
               cmd: 'save profile',
@@ -173,13 +182,13 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
               icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             },
             {
-              phrase: '“Jobs” / “Job Board”',
+              phrase: '“Jobs” (Alt+1)',
               cmd: 'jobs',
               desc: 'Switch tab back to Accessible Job Board',
               icon: <Search className="w-3.5 h-3.5 text-amber-400" />
             },
             {
-              phrase: '“Applications”',
+              phrase: '“Applications” (Alt+3)',
               cmd: 'applications',
               desc: 'Switch tab to My Applications tracker',
               icon: <FileText className="w-3.5 h-3.5 text-sky-400" />
@@ -189,33 +198,31 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
               cmd: 'switch to recruiter',
               desc: 'Change portal to Recruiter dashboard',
               icon: <Briefcase className="w-3.5 h-3.5 text-purple-400" />
-            },
-            {
-              phrase: '“Home”',
-              cmd: 'home',
-              desc: 'Return to start page portal selection',
-              icon: <Compass className="w-3.5 h-3.5 text-slate-300" />
             }
           ]
         };
       }
 
-      // Seeker > Applications
       return {
-        badge: 'Job Seeker > My Applications',
+        badge: t('assistantBadgeApplications'),
         title: 'Application Tracker Assistant · Status & Follow-ups',
         description: `Tracking ${applicationsCount} submitted job applications and ATS matching scores.`,
-        speakGuideText:
-          `You are viewing My Applications. You have ${applicationsCount} active submissions. Say "Jobs" to search for more openings, or say "Profile" to update your credentials.`,
+        speakGuideText: `You are viewing My Applications. You have ${applicationsCount} active submissions. Say "Next Tab" or "Jobs" to search for more openings.`,
         commands: [
           {
-            phrase: '“Jobs” / “Job Board”',
+            phrase: '“Next Tab” (Alt+T)',
+            cmd: 'next tab',
+            desc: 'Cycle back to Accessible Job Board tab',
+            icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+          },
+          {
+            phrase: '“Jobs” (Alt+1)',
             cmd: 'jobs',
             desc: 'Switch tab back to search and apply for more jobs',
             icon: <Search className="w-3.5 h-3.5 text-amber-400" />
           },
           {
-            phrase: '“Profile”',
+            phrase: '“Profile” (Alt+2)',
             cmd: 'profile',
             desc: 'Switch tab to review candidate profile',
             icon: <User className="w-3.5 h-3.5 text-sky-400" />
@@ -225,12 +232,6 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
             cmd: 'switch to recruiter',
             desc: 'Switch portal to review applications as employer',
             icon: <Briefcase className="w-3.5 h-3.5 text-purple-400" />
-          },
-          {
-            phrase: '“Home”',
-            cmd: 'home',
-            desc: 'Return to first page portal selection',
-            icon: <Compass className="w-3.5 h-3.5 text-slate-300" />
           }
         ]
       };
@@ -239,29 +240,28 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
     // Recruiter Portal
     if (recruiterTab === 'applications') {
       return {
-        badge: 'Recruiter > Candidate Applications',
+        badge: t('assistantBadgeRecruiterApps'),
         title: 'Recruiter Assistant · Candidate Pipeline & Review',
         description: `Reviewing ${applicationsCount} applicant submissions with ATS scores and accommodation requests.`,
-        speakGuideText:
-          `You are on the Recruiter Candidates tab with ${applicationsCount} applicants. Say "Requisitions" to manage job openings, or say "Post a job" to create a new listing. Say "Job Seeker" to switch back.`,
+        speakGuideText: `You are on the Recruiter Candidates tab with ${applicationsCount} applicants. Say "Next Tab" to cycle, say "Requisitions" to manage openings, or say "Post a job" to add an opening.`,
         commands: [
           {
-            phrase: '“Requisitions”',
+            phrase: '“Next Tab” (Alt+T)',
+            cmd: 'next tab',
+            desc: 'Cycle forward to Job Requisitions tab',
+            icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+          },
+          {
+            phrase: '“Requisitions” (Alt+2)',
             cmd: 'requisitions',
             desc: 'Switch tab to view and manage active job listings',
             icon: <Briefcase className="w-3.5 h-3.5 text-amber-400" />
           },
           {
-            phrase: '“Post a job”',
+            phrase: '“Post a job” (Alt+3)',
             cmd: 'post a job',
             desc: 'Switch tab to create a new accessible job posting',
             icon: <Plus className="w-3.5 h-3.5 text-emerald-400" />
-          },
-          {
-            phrase: '“Shortlist”',
-            cmd: 'shortlist',
-            desc: 'Updates candidate status to Shortlisted',
-            icon: <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
           },
           {
             phrase: '“Switch to Job Seeker”',
@@ -275,20 +275,25 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
 
     if (recruiterTab === 'requisitions') {
       return {
-        badge: 'Recruiter > Job Requisitions',
+        badge: t('assistantBadgeRecruiterJobs'),
         title: 'Requisitions Assistant · Manage Openings',
         description: `Managing ${jobsCount} active accessible job openings.`,
-        speakGuideText:
-          `You are viewing Job Requisitions with ${jobsCount} open roles. Say "Candidates" to review incoming applications, or say "Post a job" to add a new opening.`,
+        speakGuideText: `You are viewing Job Requisitions with ${jobsCount} open roles. Say "Next Tab" to cycle, say "Candidates" to review incoming applications, or say "Post a job" to add a new opening.`,
         commands: [
           {
-            phrase: '“Candidates”',
+            phrase: '“Next Tab” (Alt+T)',
+            cmd: 'next tab',
+            desc: 'Cycle forward to Post New Job form',
+            icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+          },
+          {
+            phrase: '“Candidates” (Alt+1)',
             cmd: 'candidates',
             desc: 'Switch tab to review candidate applications',
             icon: <User className="w-3.5 h-3.5 text-amber-400" />
           },
           {
-            phrase: '“Post a job”',
+            phrase: '“Post a job” (Alt+3)',
             cmd: 'post a job',
             desc: 'Switch tab to publish a new job opening',
             icon: <Plus className="w-3.5 h-3.5 text-emerald-400" />
@@ -303,22 +308,26 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
       };
     }
 
-    // Recruiter > Create Job
     return {
-      badge: 'Recruiter > Post New Job',
+      badge: t('assistantBadgeRecruiterPost'),
       title: 'Job Creator Assistant · Zero-Barrier Requisition',
       description: 'Define inclusive job requirements, accommodations, and salary ranges.',
-      speakGuideText:
-        'You are on the Post New Job form. Fill in the title, requirements, and accommodations. Say "Candidates" to return to applicants, or say "Requisitions" to see active jobs.',
+      speakGuideText: `You are on the Post New Job form. Fill in title, requirements, and accommodations. Say "Next Tab" or "Candidates" to return.`,
       commands: [
         {
-          phrase: '“Candidates”',
+          phrase: '“Next Tab” (Alt+T)',
+          cmd: 'next tab',
+          desc: 'Cycle forward back to Candidates list',
+          icon: <Compass className="w-3.5 h-3.5 text-amber-400" />
+        },
+        {
+          phrase: '“Candidates” (Alt+1)',
           cmd: 'candidates',
           desc: 'Switch tab back to applicant pipeline',
           icon: <User className="w-3.5 h-3.5 text-amber-400" />
         },
         {
-          phrase: '“Requisitions”',
+          phrase: '“Requisitions” (Alt+2)',
           cmd: 'requisitions',
           desc: 'Switch tab to active job listings',
           icon: <Briefcase className="w-3.5 h-3.5 text-sky-400" />
@@ -345,7 +354,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
     <section
       role="region"
       aria-label="Universal Voice and Keyboard Assistant"
-      className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900 border border-amber-400/40 shadow-2xl space-y-3.5 transition-all"
+      className="p-4 sm:p-5 rounded-2xl bg-slate-900 border border-amber-400/40 shadow-2xl space-y-3.5 transition-all"
     >
       {/* Header bar with Status, Location, and Expand Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-2.5 border-b border-slate-800">
@@ -356,13 +365,13 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
             aria-pressed={voiceActive}
             aria-label={voiceActive ? "Turn off Voice Assistant" : "Turn on Voice Assistant (Shortcut: Alt+M or press V)"}
             title="Toggle Voice Listening (Shortcut: Alt+M or press 'V')"
-            className={`relative p-2.5 rounded-xl font-bold flex items-center justify-center transition-all ${
+            className={`cursor-pointer relative p-2.5 rounded-xl font-bold flex items-center justify-center transition-all ${
               voiceActive
                 ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/30 ring-2 ring-amber-400/40 animate-pulse'
                 : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-amber-400 hover:text-white'
             }`}
           >
-            {voiceActive ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            {voiceActive ? <Mic className="w-5 h-5 text-slate-950" /> : <MicOff className="w-5 h-5" />}
           </button>
 
           <div>
@@ -374,7 +383,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
               {voiceActive ? (
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-semibold border border-emerald-500/30">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-                  <span>Listening...</span>
+                  <span>Listening (Speak now)</span>
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium">
@@ -409,7 +418,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
                 onSpeakText(pageContext.speakGuideText);
               }
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all ${
+            className={`cursor-pointer px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 border transition-all ${
               isSpeaking
                 ? 'bg-sky-500/20 text-sky-300 border-sky-400 shadow-md shadow-sky-500/10 animate-pulse'
                 : 'bg-slate-950 text-slate-200 border-slate-700 hover:border-amber-400'
@@ -424,8 +433,8 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
             ) : (
               <>
                 <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Hear Page Commands</span>
-                <span className="sm:hidden">Hear Guide</span>
+                <span className="hidden sm:inline">Hear Commands</span>
+                <span className="sm:hidden">Guide</span>
               </>
             )}
           </button>
@@ -434,7 +443,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             aria-label={isExpanded ? "Collapse Voice Assistant Panel" : "Expand Voice Assistant Panel"}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-100 bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
+            className="cursor-pointer p-1.5 rounded-xl text-slate-400 hover:text-slate-100 bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -445,7 +454,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
       {isExpanded && (
         <div className="space-y-3.5 animate-in fade-in duration-200">
           <p className="text-xs text-slate-300 leading-relaxed">
-            {pageContext.description} <strong className="text-slate-100">Say any tab name or command below</strong>, or click it to execute instantly:
+            {pageContext.description} <strong className="text-slate-100">Click or speak any command below:</strong>
           </p>
 
           {/* Page-Specific Action Commands Grid */}
@@ -487,7 +496,7 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
                 </div>
               ) : (
                 <span className="text-slate-500 italic text-[11px]">
-                  {voiceActive ? 'Listening for speech...' : 'Mic idle (Press Alt+M or V)'}
+                  {voiceActive ? 'Listening for English commands...' : 'Mic idle (Press Alt+M or V)'}
                 </span>
               )}
             </div>
@@ -498,13 +507,13 @@ export const PageAssistant: React.FC<PageAssistantProps> = ({
                 type="text"
                 value={manualCmd}
                 onChange={(e) => setManualCmd(e.target.value)}
-                placeholder='Type command (e.g. "jobs", "profile", "search remote", "summarize")...'
+                placeholder="Type command (e.g. 'jobs', 'apply', 'read', 'profile')..."
                 className="w-full px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 placeholder:text-slate-500 text-xs focus:border-amber-400 focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={!manualCmd.trim()}
-                className="px-3 py-1.5 rounded-xl bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs shrink-0 hover:bg-amber-300 transition-colors"
+                className="cursor-pointer px-3 py-1.5 rounded-xl bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs shrink-0 hover:bg-amber-300 transition-colors"
               >
                 Run
               </button>
