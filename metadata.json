@@ -1,5 +1,5 @@
 {
-  "name": "Remix Remix Remix VoiceHire AI - Accessible Job Application Assistant",
+  "name": "Remix Remix Remix Remix VoiceHire AI - Accessible Job Application Assistant",
   "description": "Zero-barrier, voice- and keyboard-first job search \u0026 1-click application assistant with dual-layer Gemini AI summarization and WCAG 2.1 AAA accessibility for job seekers and recruiters.",
   "requestFramePermissions": [
     "microphone"
