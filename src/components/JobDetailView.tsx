@@ -164,7 +164,11 @@ export const JobDetailView: React.FC<JobDetailViewProps> = ({
                   <span className="font-semibold text-slate-200">
                     Dual-Layer Engine:{' '}
                     <strong className="text-amber-400 font-mono">
-                      {summaryData.source === 'gemini-cloud' ? 'Google Gemini AI (Cloud)' : 'Local NLP Rule Engine (Offline Fallback)'}
+                      {summaryData.source === 'nvidia-cloud'
+                        ? 'NVIDIA NIM AI (Cloud)'
+                        : summaryData.source === 'gemini-cloud'
+                        ? 'Google Gemini AI (Cloud)'
+                        : 'Local NLP Rule Engine (Offline Fallback)'}
                     </strong>
                   </span>
                 </div>
