@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { db } from './src/server/db.ts';
-import { parseVoiceCommandWithDualLayer, summarizeJobWithDualLayer } from './src/server/geminiService.ts';
+import { parseVoiceCommandWithDualLayer, summarizeJobWithDualLayer } from './src/server/nvidiaService.ts';
 import { runComprehensiveUnitTests } from './src/server/testRunner.ts';
 
 dotenv.config();
@@ -38,7 +38,8 @@ app.get('/api/health', (req: Request, res: Response) => {
     product: 'VoiceHire AI - Accessible Job Application Assistant',
     team: 'Path_Finders (PS003 - RepoForge)',
     uptimeSeconds: analytics.uptimeSeconds,
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    nvidiaConfigured: Boolean(process.env.NVIDIA_API_KEY),
+    aiProvider: 'NVIDIA NIM (meta/llama-3.2-11b-vision-instruct)',
     activeJobsCount: analytics.totalJobs,
     applicationsCount: analytics.totalApplications,
     wcagStatus: '100% WCAG 2.1 AAA Compliant',
@@ -77,14 +78,25 @@ app.get('/api/jobs', (req: Request, res: Response) => {
   const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
   const filterType = typeof req.query.type === 'string' ? req.query.type : '';
   const remoteOnly = req.query.remote === 'true';
+  const country = typeof req.query.country === 'string' ? req.query.country.trim().toLowerCase() : '';
 
   let jobs = db.getJobs();
+
+  if (country && country !== 'all') {
+    jobs = jobs.filter(j =>
+      (j.country && j.country.toLowerCase() === country) ||
+      (j.city && j.city.toLowerCase() === country) ||
+      j.location.toLowerCase().includes(country)
+    );
+  }
 
   if (query) {
     jobs = jobs.filter(j =>
       j.title.toLowerCase().includes(query) ||
       j.company.toLowerCase().includes(query) ||
       j.location.toLowerCase().includes(query) ||
+      (j.country && j.country.toLowerCase().includes(query)) ||
+      (j.city && j.city.toLowerCase().includes(query)) ||
       j.requirements.some(r => r.toLowerCase().includes(query)) ||
       j.accommodationsOffered.some(a => a.toLowerCase().includes(query))
     );
@@ -125,6 +137,8 @@ app.post('/api/jobs', (req: Request, res: Response) => {
     title,
     company,
     location: location || 'Remote',
+    country: req.body.country || 'India',
+    city: req.body.city || 'Bengaluru',
     isRemote: req.body.isRemote ?? true,
     salaryRange: salaryRange || 'Competitive',
     jobType: jobType || 'Full-time',
@@ -184,9 +198,7 @@ app.put('/api/profile', (req: Request, res: Response) => {
 // 5. APPLICATIONS & 1-CLICK DOM AUTO-FILL
 // ==========================================
 app.get('/api/applications', (req: Request, res: Response) => {
-  const role = (req.headers['x-user-role'] as string) || 'job_seeker';
-  const jobId = typeof req.query.jobId === 'string' ? req.query.jobId : undefined;
-  const applications = db.getApplications(role, 'cand-001', jobId);
+  const applications = db.getApplications();
   res.json(applications);
 });
 
@@ -210,8 +222,7 @@ app.post('/api/applications', (req: Request, res: Response) => {
     skills: skills || [],
     accommodationsRequested: accommodationsRequested || [],
     coverNote: coverNote || '',
-    submittedVia: submittedVia || 'DOM 1-Click (Alt+V)',
-    matchScore: Math.floor(Math.random() * 12) + 88, // 88 - 99% ATS match
+    submittedVia: submittedVia || 'DOM 1-Click (Alt+V)'
   });
 
   res.status(201).json(newApp);
