@@ -1,5 +1,15 @@
 export type UserRole = 'job_seeker' | 'recruiter' | 'admin';
 
+export type AppLanguage = 'en';
+
+export interface LanguageOption {
+  code: AppLanguage;
+  name: string;
+  nativeName: string;
+  flag: string;
+  speechCode: string;
+}
+
 export interface UserSession {
   id: string;
   name: string;
@@ -27,6 +37,7 @@ export interface CandidateProfile {
     fontSizeZoom: number; // 100, 110, 125, etc.
     autoReadSummaryOnSelect: boolean;
     voiceFeedbackEnabled: boolean;
+    language?: AppLanguage;
   };
   lastUpdated: string;
 }
@@ -36,6 +47,8 @@ export interface JobPosting {
   title: string;
   company: string;
   location: string;
+  country: string; // e.g. "India", "USA", "Canada", "UK", "Germany"
+  city?: string; // e.g. "Bengaluru", "Hyderabad", "Pune", "Mumbai", "Delhi NCR"
   isRemote: boolean;
   salaryRange: string;
   jobType: 'Full-time' | 'Part-time' | 'Contract' | 'Internship';
@@ -78,7 +91,7 @@ export interface JobApplication {
 }
 
 export interface DualLayerSummaryResult {
-  source: 'gemini-cloud' | 'local-nlp-fallback';
+  source: 'nvidia-cloud' | 'gemini-cloud' | 'local-nlp-fallback';
   latencyMs: number;
   roleOverview: string;
   keySkillsNeeded: string[];
@@ -88,15 +101,19 @@ export interface DualLayerSummaryResult {
 }
 
 export interface VoiceCommandParseResult {
-  source: 'gemini-cloud' | 'local-nlp-fallback';
+  source: 'nvidia-cloud' | 'gemini-cloud' | 'local-nlp-fallback';
   latencyMs: number;
-  intent: 'search' | 'read' | 'summarize' | 'apply' | 'navigate' | 'contrast' | 'switch_role' | 'help' | 'unknown';
+  intent: 'search' | 'read' | 'summarize' | 'apply' | 'navigate' | 'contrast' | 'switch_role' | 'switch_tab' | 'switch_language' | 'filter_country' | 'help' | 'unknown';
   parameters: {
     keyword?: string;
-    direction?: 'next' | 'previous';
+    direction?: 'next' | 'previous' | 'home';
     role?: 'job_seeker' | 'recruiter';
     jobId?: string;
     setting?: string;
+    country?: string;
+    language?: AppLanguage;
+    tab?: string;
+    tabNumber?: number;
   };
   confidence: number;
   rawTranscript: string;
@@ -108,7 +125,7 @@ export interface VoiceInteraction {
   parsedIntent: string;
   confidence: number;
   timestamp: string;
-  source: 'gemini-cloud' | 'local-nlp-fallback';
+  source: 'nvidia-cloud' | 'gemini-cloud' | 'local-nlp-fallback';
   status: 'executed' | 'corrected' | 'failed';
   feedback?: string;
 }
@@ -142,7 +159,7 @@ export interface SystemAnalytics {
 
 export interface AutomatedTestResult {
   id: string;
-  category: 'Local NLP Fallback' | 'Cloud Gemini AI' | 'DOM Form Auto-Fill' | 'RBAC & Auth' | 'W3C Speech API' | 'WCAG 2.1 AAA';
+  category: 'Local NLP Fallback' | 'Cloud NVIDIA AI' | 'Cloud Gemini AI' | 'DOM Form Auto-Fill' | 'RBAC & Auth' | 'W3C Speech API' | 'WCAG 2.1 AAA';
   title: string;
   description: string;
   status: 'passed' | 'failed' | 'running';
