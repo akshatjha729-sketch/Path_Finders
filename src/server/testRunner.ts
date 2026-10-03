@@ -59,7 +59,7 @@ export function runComprehensiveUnitTests(): AutomatedTestResult[] {
 
     results.push({
       id: 'test-003',
-      category: 'Cloud Gemini AI',
+      category: 'Cloud NVIDIA AI',
       title: 'Cognitive Load Reduction 4-Pillar Schema Integrity',
       description: 'Validates 4-part simplified breakdown: Role Overview, Key Skills, Pay/Schedule, and Accommodations.',
       status: hasAllFields ? 'passed' : 'failed',
