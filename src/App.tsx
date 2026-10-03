@@ -14,9 +14,13 @@ import {
   Database,
   ArrowRight,
   CheckCircle2,
-  RotateCcw
+  RotateCcw,
+  MapPin,
+  Globe,
+  X
 } from 'lucide-react';
 import {
+  AppLanguage,
   CandidateProfile,
   DualLayerSummaryResult,
   JobApplication,
@@ -27,6 +31,12 @@ import {
 } from './types/index.ts';
 import { api, setApiRole } from './services/api.ts';
 import { voiceEngine } from './utils/speech.ts';
+import {
+  t,
+  detectLanguageFromVoiceCommand,
+  detectLocationFromVoiceCommand,
+  detectRoleFromVoiceCommand
+} from './utils/i18n.ts';
 
 import { AccessibilityToolbar } from './components/AccessibilityToolbar.tsx';
 import { PortalLandingView } from './components/PortalLandingView.tsx';
@@ -49,6 +59,12 @@ export default function App() {
   const [seekerTab, setSeekerTab] = useState<'jobs' | 'profile' | 'applications'>('jobs');
   const [recruiterTab, setRecruiterTab] = useState<'applications' | 'requisitions' | 'create_job'>('applications');
 
+  // Single Language Support: English Only
+  const currentLanguage: AppLanguage = 'en';
+
+  // Location / Country Filtering (Focused on India by default, voice detects requested country)
+  const [selectedCountry, setSelectedCountry] = useState<string>('India');
+
   // Accessibility States
   const [highContrast, setHighContrast] = useState(false);
   const [fontSizeZoom, setFontSizeZoom] = useState(100);
@@ -57,7 +73,10 @@ export default function App() {
   // Voice Assistant States
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'speaking' | 'unsupported'>('idle');
+  const [micErrorMessage, setMicErrorMessage] = useState<string | null>(null);
+  const [hudCommandInput, setHudCommandInput] = useState('');
   const [lastTranscript, setLastTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [forceLocalFallback, setForceLocalFallback] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [showVoiceGuide, setShowVoiceGuide] = useState(false);
@@ -114,6 +133,22 @@ export default function App() {
   const [autoFillSource, setAutoFillSource] = useState<'Voice' | 'DOM 1-Click (Alt+V)' | 'Manual Form'>('DOM 1-Click (Alt+V)');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
+  // Instant Visual Feedback for Voice Application Submission
+  const [submissionSuccessToast, setSubmissionSuccessToast] = useState<{
+    jobTitle: string;
+    company: string;
+    matchScore: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (submissionSuccessToast) {
+      const timer = setTimeout(() => {
+        setSubmissionSuccessToast(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [submissionSuccessToast]);
+
   // ARIA Announcement helper
   const announce = useCallback((message: string) => {
     setAriaAnnouncement(message);
@@ -124,7 +159,7 @@ export default function App() {
     rawTranscript: string,
     parsedIntent: string,
     confidence: number,
-    source: 'gemini-cloud' | 'local-nlp-fallback' = 'local-nlp-fallback'
+    source: 'nvidia-cloud' | 'gemini-cloud' | 'local-nlp-fallback' = 'local-nlp-fallback'
   ) => {
     const item: VoiceInteraction = {
       id: `vi-${Date.now()}`,
@@ -157,15 +192,20 @@ export default function App() {
   const loadData = useCallback(async () => {
     try {
       const [fetchedJobs, fetchedProfile, fetchedApps, fetchedAnalytics] = await Promise.all([
-        api.getJobs(searchQuery, filterType, remoteOnly),
+        api.getJobs(searchQuery, filterType, remoteOnly, selectedCountry),
         api.getProfile(),
         api.getApplications(),
         api.getAnalytics()
       ]);
 
       setJobs(fetchedJobs);
-      if (fetchedJobs.length > 0 && !selectedJob) {
-        setSelectedJob(fetchedJobs[0]);
+      if (fetchedJobs.length > 0) {
+        setSelectedJob(prev => {
+          if (prev && fetchedJobs.some(j => j.id === prev.id)) return prev;
+          return fetchedJobs[0];
+        });
+      } else {
+        setSelectedJob(null);
       }
       setProfile(fetchedProfile);
       setApplications(fetchedApps);
@@ -173,33 +213,42 @@ export default function App() {
     } catch (err) {
       console.error('Failed to load initial data:', err);
     }
-  }, [searchQuery, filterType, remoteOnly, selectedJob]);
+  }, [searchQuery, filterType, remoteOnly, selectedCountry]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Auto-start speech engine so voice commands work continuously
+  // Country/Location Filter Change Handler
+  const handleCountryFilterChange = useCallback((country: string) => {
+    setSelectedCountry(country);
+    const label = country === 'all' ? 'All locations' : country;
+    const msg = `Filtered for ${label} jobs.`;
+    announce(msg);
+    voiceEngine.speak(msg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+    setIsSpeaking(true);
+  }, [announce, profile]);
+
+  // Attempt non-intrusive start on mount; user can always click button or press V / Alt+M
   useEffect(() => {
-    try {
-      voiceEngine.startListening();
-      setVoiceActive(true);
-    } catch {
-      // Safe fallback if browser requires user gesture
-    }
+    voiceEngine.startListening().then((active) => {
+      setVoiceActive(active);
+    }).catch(() => {
+      setVoiceActive(false);
+    });
   }, []);
 
   // Turn on Voice with AI Helping Assistant Guide Narration
-  const handleToggleVoice = useCallback(() => {
-    const newState = voiceEngine.toggleListening();
+  const handleToggleVoice = useCallback(async () => {
+    const newState = await voiceEngine.toggleListening();
     setVoiceActive(newState);
 
     if (newState) {
       setShowVoiceGuide(true);
-      const guideText = "Voice listening activated. Say any tab name like 'Jobs', 'Profile', or 'Applications'.";
+      const guideText = 'Voice Assistant active. Say any command, job role, or tab name.';
       voiceEngine.speak(guideText, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
-      announce('Voice Assistant activated. Press Alt+M or V to toggle.');
+      announce(guideText);
     } else {
       voiceEngine.stopSpeaking();
       setIsSpeaking(false);
@@ -207,15 +256,128 @@ export default function App() {
     }
   }, [announce, profile]);
 
-  // Voice Command Processing - High Speed Instant Execution
+  // Tab Switching Voice & Keyboard Navigation Handlers
+  const handleNextTab = useCallback(() => {
+    if (portalView === 'recruiter') {
+      if (recruiterTab === 'applications') {
+        setRecruiterTab('requisitions');
+        announce('Switched to Job Requisitions tab.');
+        voiceEngine.speak('Job Requisitions tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (recruiterTab === 'requisitions') {
+        setRecruiterTab('create_job');
+        announce('Switched to Post New Job tab.');
+        voiceEngine.speak('Post New Job tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else {
+        setRecruiterTab('applications');
+        announce('Switched to Candidate Applications tab.');
+        voiceEngine.speak('Candidate Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    } else {
+      setPortalView('job_seeker');
+      setRole('job_seeker');
+      if (seekerTab === 'jobs') {
+        setSeekerTab('profile');
+        announce('Switched to Applicant Profile tab.');
+        voiceEngine.speak('Applicant Profile tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (seekerTab === 'profile') {
+        setSeekerTab('applications');
+        announce('Switched to My Applications tab.');
+        voiceEngine.speak('My Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else {
+        setSeekerTab('jobs');
+        announce('Switched to Accessible Job Board tab.');
+        voiceEngine.speak('Accessible Job Board tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    }
+    setIsSpeaking(true);
+  }, [portalView, recruiterTab, seekerTab, profile, announce]);
+
+  const handlePrevTab = useCallback(() => {
+    if (portalView === 'recruiter') {
+      if (recruiterTab === 'create_job') {
+        setRecruiterTab('requisitions');
+        announce('Switched to Job Requisitions tab.');
+        voiceEngine.speak('Job Requisitions tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (recruiterTab === 'requisitions') {
+        setRecruiterTab('applications');
+        announce('Switched to Candidate Applications tab.');
+        voiceEngine.speak('Candidate Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else {
+        setRecruiterTab('create_job');
+        announce('Switched to Post New Job tab.');
+        voiceEngine.speak('Post New Job tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    } else {
+      setPortalView('job_seeker');
+      setRole('job_seeker');
+      if (seekerTab === 'jobs') {
+        setSeekerTab('applications');
+        announce('Switched to My Applications tab.');
+        voiceEngine.speak('My Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (seekerTab === 'applications') {
+        setSeekerTab('profile');
+        announce('Switched to Applicant Profile tab.');
+        voiceEngine.speak('Applicant Profile tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else {
+        setSeekerTab('jobs');
+        announce('Switched to Accessible Job Board tab.');
+        voiceEngine.speak('Accessible Job Board tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    }
+    setIsSpeaking(true);
+  }, [portalView, recruiterTab, seekerTab, profile, announce]);
+
+  const handleSelectTabNumber = useCallback((num: number) => {
+    if (portalView === 'recruiter') {
+      if (num === 1) {
+        setRecruiterTab('applications');
+        announce('Switched to Candidate Applications tab.');
+        voiceEngine.speak('Candidate Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (num === 2) {
+        setRecruiterTab('requisitions');
+        announce('Switched to Job Requisitions tab.');
+        voiceEngine.speak('Job Requisitions tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (num === 3) {
+        setRecruiterTab('create_job');
+        announce('Switched to Post New Job tab.');
+        voiceEngine.speak('Post New Job tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    } else {
+      setPortalView('job_seeker');
+      setRole('job_seeker');
+      if (num === 1) {
+        setSeekerTab('jobs');
+        announce('Switched to Accessible Job Board tab.');
+        voiceEngine.speak('Accessible Job Board tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (num === 2) {
+        setSeekerTab('profile');
+        announce('Switched to Applicant Profile tab.');
+        voiceEngine.speak('Applicant Profile tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      } else if (num === 3) {
+        setSeekerTab('applications');
+        announce('Switched to My Applications tab.');
+        voiceEngine.speak('My Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      }
+    }
+    setIsSpeaking(true);
+  }, [portalView, profile, announce]);
+
+  // Voice Command Processing - High Speed Instant Execution for English Voice Commands
   const handleVoiceCommand = useCallback(async (transcript: string) => {
     setLastTranscript(transcript);
-    const cleanText = transcript.trim().toLowerCase();
+    setInterimTranscript('');
 
-    // ⚡ 1. FAST LOCAL OPTIMISTIC EXECUTION (<1ms response, pure sync regex matching)
+    // Clean and normalize incoming transcript: remove punctuation and multiple spaces
+    const cleanText = transcript
+      .toLowerCase()
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-    // Stop speaking audio immediately
-    if (/^(stop|stop\s*reading|stop\s*speaking|silence|quiet|pause\s*speech|hush)$/i.test(cleanText)) {
+    if (!cleanText) return;
+
+    // ⚡ 1. FAST STOP / AUDIO SILENCE
+    if (/\b(stop|stop reading|stop speaking|silence|quiet|pause speech|pause audio|hush|shut up)\b/i.test(cleanText)) {
       voiceEngine.stopSpeaking();
       setIsSpeaking(false);
       announce('Audio playback stopped.');
@@ -223,64 +385,120 @@ export default function App() {
       return;
     }
 
-    // Toggle Voice listening off / on via voice
-    if (/^(voice\s*off|turn\s*off\s*voice|stop\s*listening|mute\s*voice|disable\s*voice)$/i.test(cleanText)) {
+    // ⚡ 2. VOICE MUTE / UNMUTE LISTENING
+    if (/\b(voice off|turn off voice|stop listening|mute voice|disable voice)\b/i.test(cleanText)) {
       voiceEngine.stopListening();
       setVoiceActive(false);
       voiceEngine.stopSpeaking();
       setIsSpeaking(false);
-      announce('Voice Assistant deactivated.');
+      announce('Voice Assistant paused.');
       addRecentInteraction(transcript, 'voice_off', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    if (/^(voice\s*on|turn\s*on\s*voice|start\s*listening|enable\s*voice)$/i.test(cleanText)) {
-      voiceEngine.startListening();
+    if (/\b(voice on|turn on voice|start listening|enable voice)\b/i.test(cleanText)) {
+      await voiceEngine.startListening();
       setVoiceActive(true);
-      voiceEngine.speak('Voice listening active.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      const activeMsg = 'Voice Assistant active. Listening for commands.';
+      voiceEngine.speak(activeMsg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
-      announce('Voice Assistant active.');
+      announce(activeMsg);
       addRecentInteraction(transcript, 'voice_on', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    // Home / First page navigation
-    if (/^(home|main\s*menu|start\s*page|first\s*page|welcome|back\s*to\s*home|landing)$/i.test(cleanText)) {
+    // ⚡ 3. COUNTRY / LOCATION VOICE DETECTION: "Jobs in India", "Job in USA", "Jobs in Bengaluru", etc.
+    const detectedLoc = detectLocationFromVoiceCommand(cleanText);
+    if (detectedLoc) {
+      setPortalView('job_seeker');
+      setRole('job_seeker');
+      setSeekerTab('jobs');
+
+      if (detectedLoc.country) {
+        setSelectedCountry(detectedLoc.country);
+      }
+      if (detectedLoc.city) {
+        setSearchQuery(detectedLoc.city);
+      } else {
+        setSearchQuery('');
+      }
+
+      const feedback = `Showing accessible jobs for ${detectedLoc.displayLabel}.`;
+      announce(feedback);
+      voiceEngine.speak(feedback, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      setIsSpeaking(true);
+      addRecentInteraction(transcript, 'filter_location', 0.99, 'local-nlp-fallback');
+      return;
+    }
+
+    // ⚡ 4. ROLE SWITCHING: "Job Seeker" or "Recruiter"
+    const detectedRole = detectRoleFromVoiceCommand(cleanText);
+    if (detectedRole) {
+      handleRoleChange(detectedRole);
+      const isRecruiter = detectedRole === 'recruiter';
+      const speechMsg = isRecruiter 
+        ? 'Switched to Recruiter portal. You can review applicants and post jobs.'
+        : 'Switched to Job Seeker portal. Say Jobs to view openings.';
+      voiceEngine.speak(speechMsg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      setIsSpeaking(true);
+      addRecentInteraction(transcript, 'switch_role', 0.99, 'local-nlp-fallback');
+      return;
+    }
+
+    // ⚡ 5. HOME / MAIN GATEWAY
+    if (
+      /^(home|main menu|start page|first page|welcome|back to home|landing|go home)$/i.test(cleanText) ||
+      /\b(go to home|back to home)\b/i.test(cleanText)
+    ) {
       handleGoHome();
-      voiceEngine.speak('Returned to home page. Say Job Seeker or Recruiter.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      const welcomeMsg = 'Welcome to VoiceHire AI. Say Job Seeker to find jobs, or say Recruiter to hire.';
+      voiceEngine.speak(welcomeMsg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
       addRecentInteraction(transcript, 'navigate', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    // Role Switching Command: "Job Seeker" or "Recruiter" (single words or full phrases)
-    if (/^(recruiter|recruiter\s*mode|recruiter\s*portal|hiring)$/i.test(cleanText) || /switch(\s*to)?\s*recruiter|i am a recruiter/i.test(cleanText)) {
-      handleRoleChange('recruiter');
-      voiceEngine.speak('Switched whole page to Recruiter portal. You can post jobs and review applicants.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
-      setIsSpeaking(true);
-      addRecentInteraction(transcript, 'switch_role', 0.99, 'local-nlp-fallback');
+    // ⚡ 6. TAB SWITCHING: Next Tab / Previous Tab / Numbered Tabs / Direct Named Tabs
+    if (/\b(next tab|switch tab|cycle tab|change tab|forward tab|rotate tab)\b/i.test(cleanText)) {
+      handleNextTab();
+      addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    if (/^(job\s*seeker|candidate|applicant|seeker|job\s*search)$/i.test(cleanText) || /switch(\s*to)?\s*(job\s*seeker|candidate|applicant|seeker)|i am a job seeker/i.test(cleanText)) {
-      handleRoleChange('job_seeker');
-      voiceEngine.speak('Switched whole page to Job Seeker portal. Say Search React to filter jobs, or Apply now to submit.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
-      setIsSpeaking(true);
-      addRecentInteraction(transcript, 'switch_role', 0.99, 'local-nlp-fallback');
+    if (/\b(previous tab|prev tab|back tab|last tab|prior tab)\b/i.test(cleanText)) {
+      handlePrevTab();
+      addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    // ⚡ TAB SWITCHING BY SPOKEN NAME (Instantaneous switching)
+    if (/\b(tab 1|tab one|first tab)\b/i.test(cleanText)) {
+      handleSelectTabNumber(1);
+      addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+      return;
+    }
+
+    if (/\b(tab 2|tab two|second tab)\b/i.test(cleanText)) {
+      handleSelectTabNumber(2);
+      addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+      return;
+    }
+
+    if (/\b(tab 3|tab three|third tab)\b/i.test(cleanText)) {
+      handleSelectTabNumber(3);
+      addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+      return;
+    }
+
     // TAB: Accessible Job Board
     if (
-      /^(jobs|job\s*board|open\s*jobs|show\s*jobs|browse\s*jobs|find\s*jobs|positions|search\s*jobs|tab\s*jobs|tab\s*1)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open|view|show)\s+(?:the\s+)?(?:job\s*board|jobs|board|listings)$/i.test(cleanText)
+      /^(jobs|job board|open jobs|show jobs|browse jobs|find jobs|positions|search jobs|tab jobs|jobs tab|view jobs|listings)$/i.test(cleanText) ||
+      /\b(go to jobs|show jobs|open job board|browse jobs|view jobs|switch to jobs|switch to jobs tab|switch to job board)\b/i.test(cleanText)
     ) {
       setPortalView('job_seeker');
       setRole('job_seeker');
       setSeekerTab('jobs');
-      announce('Switched to Accessible Job Board tab.');
-      voiceEngine.speak('Opening Job Board.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      announce('Opening Accessible Job Board.');
+      voiceEngine.speak('Opening Accessible Job Board.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
       addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
       return;
@@ -288,23 +506,23 @@ export default function App() {
 
     // TAB: Candidate Profile
     if (
-      /^(profile|my\s*profile|candidate\s*profile|applicant\s*profile|edit\s*profile|tab\s*profile|tab\s*2|resume|my\s*resume)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open|view|show)\s+(?:the\s+)?(?:candidate\s+)?profile$/i.test(cleanText)
+      /^(profile|my profile|candidate profile|applicant profile|edit profile|tab profile|profile tab|resume|my resume|cv)$/i.test(cleanText) ||
+      /\b(go to profile|open profile|edit profile|view profile|switch to profile|switch to profile tab|switch to candidate profile|switch to applicant profile)\b/i.test(cleanText)
     ) {
       setPortalView('job_seeker');
       setRole('job_seeker');
       setSeekerTab('profile');
-      announce('Switched to Candidate Profile editor tab.');
+      announce('Opening Candidate Profile.');
       voiceEngine.speak('Opening Candidate Profile.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
       addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    // TAB: My Applications / Applications
+    // TAB: My Applications
     if (
-      /^(applications|my\s*applications|applied\s*jobs|application\s*status|applied|tab\s*applications|tab\s*3|submissions)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open|view|show)\s+(?:the\s+)?(?:my\s+)?applications$/i.test(cleanText)
+      /^(applications|my applications|applied jobs|application status|applied|tab applications|applications tab|submissions)$/i.test(cleanText) ||
+      /\b(go to applications|view applications|my applications|switch to applications|switch to applications tab|switch to my applications)\b/i.test(cleanText)
     ) {
       if (portalView === 'recruiter') {
         setRecruiterTab('applications');
@@ -313,7 +531,7 @@ export default function App() {
       } else {
         setPortalView('job_seeker');
         setSeekerTab('applications');
-        announce('Switched to My Applications tab.');
+        announce('Opening My Applications.');
         voiceEngine.speak('Opening My Applications.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       }
       setIsSpeaking(true);
@@ -323,8 +541,8 @@ export default function App() {
 
     // RECRUITER TAB: Candidates
     if (
-      /^(candidates|applicants|candidate\s*applications|review\s*candidates|applicant\s*list|candidate\s*pipeline)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open|view|show)\s+(?:the\s+)?candidates$/i.test(cleanText)
+      /^(candidates|applicants|candidate applications|review candidates|applicant list|candidate pipeline|tab candidates|candidates tab)$/i.test(cleanText) ||
+      /\b(go to candidates|view candidates|review applicants|switch to candidates|switch to candidates tab)\b/i.test(cleanText)
     ) {
       setPortalView('recruiter');
       setRole('recruiter');
@@ -338,8 +556,8 @@ export default function App() {
 
     // RECRUITER TAB: Job Requisitions
     if (
-      /^(requisitions|job\s*requisitions|active\s*jobs|job\s*postings|postings|manage\s*jobs|openings)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open|view|show)\s+(?:the\s+)?requisitions$/i.test(cleanText)
+      /^(requisitions|job requisitions|active jobs|job postings|postings|manage jobs|openings|tab requisitions|requisitions tab)$/i.test(cleanText) ||
+      /\b(go to requisitions|view requisitions|manage jobs|switch to requisitions|switch to requisitions tab)\b/i.test(cleanText)
     ) {
       setPortalView('recruiter');
       setRole('recruiter');
@@ -351,10 +569,10 @@ export default function App() {
       return;
     }
 
-    // RECRUITER TAB: Post / Create Job
+    // RECRUITER TAB: Post Job
     if (
-      /^(post\s*a\s*job|post\s*job|create\s*job|new\s*job|add\s*job|create\s*posting|post\s*new\s*job)$/i.test(cleanText) ||
-      /^(?:go\s*to|switch\s*to|open)\s+(?:post\s*a\s*job|create\s*job)$/i.test(cleanText)
+      /^(post a job|post job|create job|new job|add job|publish job|tab post job|tab create job|create job tab|post job tab)$/i.test(cleanText) ||
+      /\b(post a job|create job|add new job|switch to post job|switch to create job)\b/i.test(cleanText)
     ) {
       setPortalView('recruiter');
       setRole('recruiter');
@@ -366,8 +584,8 @@ export default function App() {
       return;
     }
 
-    // Navigation: Next Job / Previous Job
-    if (/^(next|next\s*job|go\s*down|next\s*listing)$/i.test(cleanText)) {
+    // Navigation: Next Job / Previous Job (strictly job navigation)
+    if (/^(next|next job|go down|next listing)$/i.test(cleanText) || /\b(next job|next listing)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
       setSeekerTab('jobs');
       if (jobs.length > 0) {
@@ -384,7 +602,7 @@ export default function App() {
       return;
     }
 
-    if (/^(previous|previous\s*job|go\s*up|prev\s*job|last\s*job)$/i.test(cleanText)) {
+    if (/^(previous|prev|previous job|prev job|go up|last job)$/i.test(cleanText) || /\b(previous job|prev job)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
       setSeekerTab('jobs');
       if (jobs.length > 0) {
@@ -401,10 +619,68 @@ export default function App() {
       return;
     }
 
-    // Search Command (when in Job Seeker view or landing)
-    const searchMatch = cleanText.match(/^(?:search|find|filter|look for)\s*(?:for\s*)?(.+)$/i);
+    // Search Command (e.g. "search react", "find python", "look for designer")
+    // Only triggers on explicit search prefix, and never writes tab names into search box!
+    const searchMatch = cleanText.match(/^(?:search|search for|find|filter|look for)\s+(.+)$/i);
     if (searchMatch) {
       const keyword = searchMatch[1].trim();
+
+      // Guard: If spoken keyword is actually a tab name, switch tab instead of typing in search box!
+      if (/^(jobs|job|job board|open jobs|positions|listings|all jobs)$/i.test(keyword)) {
+        setPortalView('job_seeker');
+        setSeekerTab('jobs');
+        announce('Showing Accessible Job Board.');
+        voiceEngine.speak('Showing Accessible Job Board.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+      if (/^(profile|my profile|candidate profile|resume|cv)$/i.test(keyword)) {
+        setPortalView('job_seeker');
+        setSeekerTab('profile');
+        announce('Opening Candidate Profile.');
+        voiceEngine.speak('Opening Candidate Profile.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+      if (/^(applications|my applications|applied jobs|applied|submissions)$/i.test(keyword)) {
+        setPortalView('job_seeker');
+        setSeekerTab('applications');
+        announce('Opening My Applications.');
+        voiceEngine.speak('Opening My Applications.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+      if (/^(candidates|applicants|review candidates)$/i.test(keyword)) {
+        setPortalView('recruiter');
+        setRecruiterTab('applications');
+        announce('Opening Candidate Applications.');
+        voiceEngine.speak('Opening Candidate Applications.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+      if (/^(requisitions|manage jobs|postings)$/i.test(keyword)) {
+        setPortalView('recruiter');
+        setRecruiterTab('requisitions');
+        announce('Opening Job Requisitions.');
+        voiceEngine.speak('Opening Job Requisitions.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+      if (/^(post job|create job|new job|add job)$/i.test(keyword)) {
+        setPortalView('recruiter');
+        setRecruiterTab('create_job');
+        announce('Opening Create Job form.');
+        voiceEngine.speak('Opening Create Job form.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+        setIsSpeaking(true);
+        addRecentInteraction(transcript, 'switch_tab', 0.99, 'local-nlp-fallback');
+        return;
+      }
+
       setPortalView('job_seeker');
       setSeekerTab('jobs');
       setSearchQuery(keyword);
@@ -416,7 +692,7 @@ export default function App() {
     }
 
     // Filter toggles
-    if (/^(remote\s*only|remote|toggle\s*remote)$/i.test(cleanText)) {
+    if (/\b(remote only|remote|toggle remote)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
       setSeekerTab('jobs');
       setRemoteOnly(prev => {
@@ -430,9 +706,10 @@ export default function App() {
       return;
     }
 
-    if (/^(clear\s*search|reset\s*search|clear\s*filters|reset\s*filters|all\s*jobs|show\s*all)$/i.test(cleanText)) {
+    if (/\b(clear search|reset search|clear filters|reset filters|all jobs|show all)\b/i.test(cleanText)) {
       setSearchQuery('');
       setFilterType('all');
+      setSelectedCountry('all');
       setRemoteOnly(false);
       announce('Cleared search and reset filters.');
       voiceEngine.speak('Cleared filters. Showing all jobs.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
@@ -441,22 +718,70 @@ export default function App() {
       return;
     }
 
-    // Apply Command
-    if (/apply(\s*now)?|submit(\s*application)?|auto[\s-]?fill/i.test(cleanText)) {
+    // Apply Command -> Immediately Auto-Fill and Submit Application to Recruiter
+    if (/\b(apply|apply now|submit application|submit|auto fill|1 click apply|one click apply|submit to recruiter|apply job|submit job)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
-      if (selectedJob) {
-        setAutoFillSource('Voice');
-        setIsAutoFillModalOpen(true);
-        announce(`Opening 1-Click DOM Form Auto-Fill for ${selectedJob.title}`);
-        voiceEngine.speak(`Auto-filling application for ${selectedJob.title}`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      const targetJob = selectedJob || (jobs.length > 0 ? jobs[0] : null);
+
+      if (targetJob) {
+        if (!selectedJob) {
+          setSelectedJob(targetJob);
+        }
+
+        try {
+          const appPayload = {
+            jobId: targetJob.id,
+            jobTitle: targetJob.title,
+            company: targetJob.company,
+            applicantName: profile?.fullName || 'Alex Morgan',
+            applicantEmail: profile?.email || 'alex.morgan@accessibility.org',
+            applicantPhone: profile?.phone || '+1 (555) 382-9011',
+            resumeSummary: profile?.resumeText || 'Frontend accessibility engineer with 4 years experience in WCAG 2.1 AAA.',
+            skills: profile?.primarySkills && profile.primarySkills.length > 0
+              ? profile.primarySkills
+              : ['React', 'TypeScript', 'WCAG', 'Accessibility'],
+            accommodationsRequested: profile?.accessibilityAccommodations && profile.accessibilityAccommodations.length > 0
+              ? profile.accessibilityAccommodations
+              : ['Screen reader support', 'Flexible working hours'],
+            coverNote: `Excited to apply for ${targetJob.title} at ${targetJob.company}. Spoken voice auto-submission with pre-verified assistive accommodations.`,
+            submittedVia: 'Voice' as const
+          };
+
+          const newApp = await api.createApplication(appPayload);
+          setApplications(prev => [newApp, ...prev.filter(a => a.id !== newApp.id)]);
+          setIsAutoFillModalOpen(false);
+
+          setSubmissionSuccessToast({
+            jobTitle: targetJob.title,
+            company: targetJob.company,
+            matchScore: newApp.matchScore
+          });
+
+          const msg = `Application for ${targetJob.title} at ${targetJob.company} has been submitted to the recruiter! ATS Match Score: ${newApp.matchScore}%.`;
+          announce(msg);
+          voiceEngine.speak(`Application for ${targetJob.title} submitted to recruiter successfully!`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+
+          api.getAnalytics().then(setAnalytics).catch(console.error);
+          addRecentInteraction(transcript, 'apply_and_submit', 1.0, 'local-nlp-fallback');
+        } catch (err: any) {
+          console.error('Submission error:', err);
+          const errMsg = `Error submitting application: ${err.message || 'Please try again.'}`;
+          announce(errMsg);
+          voiceEngine.speak(errMsg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        }
+      } else {
+        const noJobMsg = 'Please select a job first before saying apply now.';
+        announce(noJobMsg);
+        voiceEngine.speak(noJobMsg, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
         setIsSpeaking(true);
       }
-      addRecentInteraction(transcript, 'apply', 0.99, 'local-nlp-fallback');
       return;
     }
 
     // Read Command
-    if (/read(\s*job|\s*description|\s*aloud|\s*it)?|speak|narrate/i.test(cleanText)) {
+    if (/\b(read|read job|read description|speak|narrate|read aloud)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
       if (selectedJob) {
         const textToRead = `${selectedJob.title} at ${selectedJob.company}. Salary: ${selectedJob.salaryRange}. Location: ${selectedJob.location}. ${selectedJob.simplifiedSummary?.roleOverview || selectedJob.description}`;
@@ -464,12 +789,14 @@ export default function App() {
         setIsSpeaking(true);
         announce(`Reading aloud ${selectedJob.title}`);
         addRecentInteraction(transcript, 'read', 0.98, 'local-nlp-fallback');
+      } else {
+        announce('Please select a job to read aloud.');
       }
       return;
     }
 
     // Summarize Command
-    if (/summarize|simplify|breakdown|ai summary/i.test(cleanText)) {
+    if (/\b(summarize|simplify|breakdown|ai summary|explain|summary)\b/i.test(cleanText)) {
       setPortalView('job_seeker');
       if (selectedJob) {
         setIsSummarizing(true);
@@ -495,7 +822,7 @@ export default function App() {
     }
 
     // High Contrast Command
-    if (/^(high\s*contrast|contrast|toggle\s*contrast)$/i.test(cleanText)) {
+    if (/\b(high contrast|contrast|toggle contrast)\b/i.test(cleanText)) {
       setHighContrast(prev => {
         const next = !prev;
         announce(next ? 'Enabled high contrast mode.' : 'Disabled high contrast mode.');
@@ -508,7 +835,7 @@ export default function App() {
     }
 
     // Zoom Controls
-    if (/^(zoom\s*in|font\s*bigger|increase\s*font|larger\s*text)$/i.test(cleanText)) {
+    if (/\b(zoom in|font bigger|increase font|larger text|bigger text)\b/i.test(cleanText)) {
       setFontSizeZoom(prev => {
         const next = Math.min(140, prev + 10);
         announce(`Increased font size to ${next} percent.`);
@@ -517,7 +844,7 @@ export default function App() {
       return;
     }
 
-    if (/^(zoom\s*out|font\s*smaller|decrease\s*font|smaller\s*text)$/i.test(cleanText)) {
+    if (/\b(zoom out|font smaller|decrease font|smaller text)\b/i.test(cleanText)) {
       setFontSizeZoom(prev => {
         const next = Math.max(80, prev - 10);
         announce(`Decreased font size to ${next} percent.`);
@@ -526,8 +853,8 @@ export default function App() {
       return;
     }
 
-    // Save Profile Command (when in Profile tab)
-    if (/^(save\s*profile|save|update\s*profile)$/i.test(cleanText)) {
+    // Save Profile Command
+    if (/\b(save profile|save|update profile)\b/i.test(cleanText)) {
       if (profile) {
         announce('Candidate profile saved successfully.');
         voiceEngine.speak('Candidate profile saved.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
@@ -538,16 +865,16 @@ export default function App() {
     }
 
     // Help / Commands list
-    if (/^(help|commands|what\s*can\s*i\s*do|assistant|voice\s*guide|show\s*commands)$/i.test(cleanText)) {
+    if (/\b(help|commands|what can i do|assistant|voice guide|show commands)\b/i.test(cleanText)) {
       setIsVoiceModalOpen(true);
       announce('Opened Voice Assistant commands reference.');
-      voiceEngine.speak('Here is the command guide. You can say any tab name or action.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+      voiceEngine.speak('Here is the command guide. You can say any tab name, country, or action.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
       setIsSpeaking(true);
       addRecentInteraction(transcript, 'help', 0.99, 'local-nlp-fallback');
       return;
     }
 
-    // ⚡ 2. ASYNC BACKEND PARSER FOR COMPLEX SPEECH PHRASES
+    // ⚡ 7. ASYNC BACKEND PARSER FOR COMPLEX SPEECH PHRASES
     try {
       const parseResult = await api.parseVoiceCommand(transcript, forceLocalFallback);
       addRecentInteraction(transcript, parseResult.intent, parseResult.confidence, parseResult.source);
@@ -558,6 +885,192 @@ export default function App() {
         const name = targetRole === 'recruiter' ? 'Recruiter' : 'Job Seeker';
         voiceEngine.speak(`Switched whole page to ${name} portal.`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
         setIsSpeaking(true);
+      } else if (parseResult.intent === 'apply') {
+        setPortalView('job_seeker');
+        const targetJob = selectedJob || (jobs.length > 0 ? jobs[0] : null);
+        if (targetJob) {
+          if (!selectedJob) {
+            setSelectedJob(targetJob);
+          }
+          try {
+            const appPayload = {
+              jobId: targetJob.id,
+              jobTitle: targetJob.title,
+              company: targetJob.company,
+              applicantName: profile?.fullName || 'Alex Morgan',
+              applicantEmail: profile?.email || 'alex.morgan@accessibility.org',
+              applicantPhone: profile?.phone || '+1 (555) 382-9011',
+              resumeSummary: profile?.resumeText || 'Frontend accessibility engineer with 4 years experience in WCAG 2.1 AAA.',
+              skills: profile?.primarySkills && profile.primarySkills.length > 0
+                ? profile.primarySkills
+                : ['React', 'TypeScript', 'WCAG', 'Accessibility'],
+              accommodationsRequested: profile?.accessibilityAccommodations && profile.accessibilityAccommodations.length > 0
+                ? profile.accessibilityAccommodations
+                : ['Screen reader support', 'Flexible working hours'],
+              coverNote: `Excited to apply for ${targetJob.title} at ${targetJob.company}. Spoken voice auto-submission with pre-verified assistive accommodations.`,
+              submittedVia: 'Voice' as const
+            };
+
+            const newApp = await api.createApplication(appPayload);
+            setApplications(prev => [newApp, ...prev.filter(a => a.id !== newApp.id)]);
+            setIsAutoFillModalOpen(false);
+
+            setSubmissionSuccessToast({
+              jobTitle: targetJob.title,
+              company: targetJob.company,
+              matchScore: newApp.matchScore
+            });
+
+            const msg = `Application for ${targetJob.title} at ${targetJob.company} has been submitted to the recruiter! ATS Match Score: ${newApp.matchScore}%.`;
+            announce(msg);
+            voiceEngine.speak(`Application for ${targetJob.title} submitted to recruiter successfully!`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+            setIsSpeaking(true);
+
+            api.getAnalytics().then(setAnalytics).catch(console.error);
+          } catch (err: any) {
+            console.error('Submission error:', err);
+          }
+        }
+      } else if (parseResult.intent === 'read') {
+        setPortalView('job_seeker');
+        if (selectedJob) {
+          const textToRead = `${selectedJob.title} at ${selectedJob.company}. ${selectedJob.simplifiedSummary?.roleOverview || selectedJob.description}`;
+          voiceEngine.speak(textToRead, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        }
+      } else if (parseResult.intent === 'summarize') {
+        setPortalView('job_seeker');
+        if (selectedJob) {
+          setIsSummarizing(true);
+          const sum = await api.summarizeJob(
+            selectedJob.title,
+            selectedJob.description,
+            selectedJob.salaryRange,
+            selectedJob.location,
+            selectedJob.requirements,
+            forceLocalFallback
+          );
+          setSummaryData(sum);
+          setIsSummarizing(false);
+          voiceEngine.speak(sum.roleOverview, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        }
+      } else if (parseResult.intent === 'switch_tab') {
+        const direction = parseResult.parameters?.direction;
+        const tabNumber = parseResult.parameters?.tabNumber;
+        const targetTab = parseResult.parameters?.tab;
+
+        if (direction === 'next') {
+          handleNextTab();
+        } else if (direction === 'previous') {
+          handlePrevTab();
+        } else if (tabNumber) {
+          handleSelectTabNumber(Number(tabNumber));
+        } else if (targetTab === 'jobs') {
+          setPortalView('job_seeker');
+          setRole('job_seeker');
+          setSeekerTab('jobs');
+          announce('Opening Accessible Job Board.');
+          voiceEngine.speak('Accessible Job Board tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        } else if (targetTab === 'profile') {
+          setPortalView('job_seeker');
+          setRole('job_seeker');
+          setSeekerTab('profile');
+          announce('Opening Candidate Profile.');
+          voiceEngine.speak('Candidate Profile tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        } else if (targetTab === 'applications') {
+          if (portalView === 'recruiter') {
+            setRecruiterTab('applications');
+            announce('Switched to Candidate Applications tab.');
+            voiceEngine.speak('Candidate Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          } else {
+            setPortalView('job_seeker');
+            setSeekerTab('applications');
+            announce('Opening My Applications.');
+            voiceEngine.speak('My Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          }
+          setIsSpeaking(true);
+        } else if (targetTab === 'candidates') {
+          setPortalView('recruiter');
+          setRole('recruiter');
+          setRecruiterTab('applications');
+          announce('Switched to Recruiter Candidate Applications.');
+          voiceEngine.speak('Candidate Applications tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        } else if (targetTab === 'requisitions') {
+          setPortalView('recruiter');
+          setRole('recruiter');
+          setRecruiterTab('requisitions');
+          announce('Switched to Job Requisitions tab.');
+          voiceEngine.speak('Job Requisitions tab.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        } else if (targetTab === 'create_job') {
+          setPortalView('recruiter');
+          setRole('recruiter');
+          setRecruiterTab('create_job');
+          announce('Switched to Post New Job form.');
+          voiceEngine.speak('Post New Job form.', profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        }
+      } else if (parseResult.intent === 'navigate') {
+        if (parseResult.parameters.direction === 'home') {
+          handleGoHome();
+        } else if (parseResult.parameters.direction === 'next' && jobs.length > 0) {
+          const currentIndex = selectedJob ? jobs.findIndex(j => j.id === selectedJob.id) : -1;
+          const nextIndex = (currentIndex + 1) % jobs.length;
+          setSelectedJob(jobs[nextIndex]);
+          voiceEngine.speak(`Selected ${jobs[nextIndex].title}`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        } else if (parseResult.parameters.direction === 'previous' && jobs.length > 0) {
+          const currentIndex = selectedJob ? jobs.findIndex(j => j.id === selectedJob.id) : 0;
+          const prevIndex = (currentIndex - 1 + jobs.length) % jobs.length;
+          setSelectedJob(jobs[prevIndex]);
+          voiceEngine.speak(`Selected ${jobs[prevIndex].title}`, profile?.assistivePreferences.speechRate || 1.0, () => setIsSpeaking(false));
+          setIsSpeaking(true);
+        }
+      } else if (parseResult.intent === 'search') {
+        const rawKw = (parseResult.parameters.keyword || '').trim();
+        const isTabTerm = /^(jobs|job|job board|open jobs|positions|listings|profile|my profile|candidate profile|resume|cv|applications|my applications|applied jobs|applied|candidates|applicants|requisitions|create job|post job|tab\s*\d?)$/i.test(rawKw);
+
+        if (isTabTerm) {
+          // Never write tab name into search box! Switch to corresponding tab instead
+          if (/profile|resume|cv/i.test(rawKw)) {
+            setPortalView('job_seeker');
+            setRole('job_seeker');
+            setSeekerTab('profile');
+          } else if (/application|applied/i.test(rawKw)) {
+            setPortalView('job_seeker');
+            setSeekerTab('applications');
+          } else if (/candidate|applicant/i.test(rawKw)) {
+            setPortalView('recruiter');
+            setRole('recruiter');
+            setRecruiterTab('applications');
+          } else if (/requisition/i.test(rawKw)) {
+            setPortalView('recruiter');
+            setRole('recruiter');
+            setRecruiterTab('requisitions');
+          } else if (/create|post/i.test(rawKw)) {
+            setPortalView('recruiter');
+            setRole('recruiter');
+            setRecruiterTab('create_job');
+          } else {
+            setPortalView('job_seeker');
+            setRole('job_seeker');
+            setSeekerTab('jobs');
+          }
+        } else {
+          setPortalView('job_seeker');
+          setSeekerTab('jobs');
+          if (parseResult.parameters.country) {
+            setSelectedCountry(parseResult.parameters.country);
+          }
+          if (rawKw) {
+            setSearchQuery(rawKw);
+            announce(`Filtered jobs for keyword: ${rawKw}`);
+          }
+        }
       } else if (parseResult.intent === 'contrast') {
         setHighContrast(prev => !prev);
       } else if (parseResult.intent === 'help') {
@@ -568,7 +1081,22 @@ export default function App() {
     } catch (err) {
       console.error('Error handling voice command:', err);
     }
-  }, [addRecentInteraction, announce, forceLocalFallback, handleGoHome, handleRoleChange, profile, role, selectedJob, jobs]);
+  }, [
+    addRecentInteraction,
+    announce,
+    forceLocalFallback,
+    handleCountryFilterChange,
+    handleGoHome,
+    handleNextTab,
+    handlePrevTab,
+    handleRoleChange,
+    handleSelectTabNumber,
+    jobs,
+    portalView,
+    profile,
+    role,
+    selectedJob
+  ]);
 
   // Play audio welcome on the first page
   const handlePlayWelcomeAudio = useCallback(() => {
@@ -607,19 +1135,32 @@ export default function App() {
   // Voice Engine Callbacks Setup
   useEffect(() => {
     voiceEngine.setCallbacks(
-      (transcript) => handleVoiceCommand(transcript),
+      (transcript) => {
+        setInterimTranscript('');
+        handleVoiceCommand(transcript);
+      },
       (status) => {
         setVoiceStatus(status);
         if (status === 'speaking') setIsSpeaking(true);
         if (status === 'idle') setIsSpeaking(false);
+        if (status === 'listening') setMicErrorMessage(null);
+      },
+      (interim) => {
+        setInterimTranscript(interim);
+      },
+      (errorMsg) => {
+        setMicErrorMessage(errorMsg);
+        announce(errorMsg);
       }
     );
-  }, [handleVoiceCommand]);
+  }, [announce, handleVoiceCommand]);
 
   // Keyboard Shortcuts:
   // 1. Alt+M or 'V' / 'M' to Toggle Voice Listening
   // 2. Alt+V for 1-Click DOM Form Auto-Fill (or voice toggle if no job selected)
-  // 3. Escape to close modals and stop speaking
+  // 3. Alt+1, Alt+2, Alt+3 to Switch to specific Tabs
+  // 4. Alt+T or Alt+RightArrow / Alt+LeftArrow to cycle Next / Previous Tab
+  // 5. Escape to close modals and stop speaking
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -659,6 +1200,27 @@ export default function App() {
         return;
       }
 
+      // Keyboard Shortcut 4: Alt+1, Alt+2, Alt+3 for Direct Tab Navigation
+      if (e.altKey && (e.key === '1' || e.key === '2' || e.key === '3')) {
+        e.preventDefault();
+        handleSelectTabNumber(parseInt(e.key, 10));
+        return;
+      }
+
+      // Keyboard Shortcut 5: Alt+T or Alt+ArrowRight to cycle Next Tab
+      if (e.altKey && (e.key === 't' || e.key === 'T' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        handleNextTab();
+        return;
+      }
+
+      // Keyboard Shortcut 6: Alt+ArrowLeft to cycle Previous Tab
+      if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handlePrevTab();
+        return;
+      }
+
       // Escape to close modals or stop speech
       if (e.key === 'Escape') {
         setIsAutoFillModalOpen(false);
@@ -670,7 +1232,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [announce, handleToggleVoice, portalView, selectedJob]);
+  }, [announce, handleNextTab, handlePrevTab, handleSelectTabNumber, handleToggleVoice, portalView, selectedJob]);
 
   // Summarize handler (Fast with cache)
   const handleSummarizeJob = async (job: JobPosting, forceFallback: boolean = false) => {
@@ -761,6 +1323,52 @@ export default function App() {
 
       {/* Main Container */}
       <main id="main-content" className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Instant Visual Confirmation for Spoken "Apply Now" Submission */}
+        {submissionSuccessToast && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="p-4 rounded-2xl bg-emerald-950/90 border-2 border-emerald-400 text-emerald-100 flex flex-wrap items-center justify-between gap-4 shadow-2xl animate-in fade-in"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-bold shadow-md shadow-emerald-500/30">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Application Submitted Directly to Recruiter!</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                    Voice Auto-Fill (100% WCAG)
+                  </span>
+                </p>
+                <p className="text-xs text-emerald-200 mt-0.5">
+                  Position: <strong>{submissionSuccessToast.jobTitle}</strong> at <strong>{submissionSuccessToast.company}</strong> · ATS Match Score: <strong className="text-amber-300 font-bold">{submissionSuccessToast.matchScore}%</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setPortalView('job_seeker');
+                  setRole('job_seeker');
+                  setSeekerTab('applications');
+                  setSubmissionSuccessToast(null);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors shadow-sm"
+              >
+                View in My Applications
+              </button>
+              <button
+                onClick={() => setSubmissionSuccessToast(null)}
+                aria-label="Dismiss confirmation notification"
+                className="p-1.5 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-900/60 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ========================================================================= */}
         {/* UNIVERSAL VOICE & KEYBOARD ASSISTANT (CONTEXT-AWARE FOR EVERY PAGE)       */}
         {/* ========================================================================= */}
@@ -785,6 +1393,8 @@ export default function App() {
           selectedJob={selectedJob}
           jobsCount={jobs.length}
           applicationsCount={applications.length}
+          currentCountryFilter={selectedCountry}
+          onCountryFilterChange={handleCountryFilterChange}
         />
 
         {/* ========================================================================= */}
@@ -797,6 +1407,9 @@ export default function App() {
             onActivateVoice={handleToggleVoice}
             onPlayWelcomeAudio={handlePlayWelcomeAudio}
             isSpeaking={isSpeaking}
+            lastTranscript={lastTranscript}
+            interimTranscript={interimTranscript}
+            onExecuteCommand={handleVoiceCommand}
           />
         )}
 
@@ -805,55 +1418,80 @@ export default function App() {
         {/* ========================================================================= */}
         {portalView === 'job_seeker' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Seeker Sub-Navigation Controls (Clean & focused: NO Test Suite, NO API Docs) */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 p-2 rounded-2xl">
-              <div className="flex items-center gap-1.5" role="tablist" aria-label="Seeker navigation sections">
+            {/* Seeker Sub-Navigation Controls with explicit Voice Dependencies */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-2.5 rounded-2xl shadow-lg">
+              <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Seeker navigation sections">
                 <button
                   role="tab"
                   aria-selected={seekerTab === 'jobs'}
                   onClick={() => setSeekerTab('jobs')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+                  className={`cursor-pointer px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                     seekerTab === 'jobs'
                       ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-300 hover:text-white bg-slate-950/60 hover:bg-slate-800 border border-slate-800'
                   }`}
                 >
                   <Search className="w-3.5 h-3.5" />
                   <span>Accessible Job Board</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+                    seekerTab === 'jobs' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+                  }`}>
+                    <Mic className="w-2.5 h-2.5" /> “Jobs” · Alt+1
+                  </span>
                 </button>
 
                 <button
                   role="tab"
                   aria-selected={seekerTab === 'profile'}
                   onClick={() => setSeekerTab('profile')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+                  className={`cursor-pointer px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                     seekerTab === 'profile'
                       ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-300 hover:text-white bg-slate-950/60 hover:bg-slate-800 border border-slate-800'
                   }`}
                 >
                   <User className="w-3.5 h-3.5" />
-                  <span>Applicant Profile (Slide 4)</span>
+                  <span>Applicant Profile</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+                    seekerTab === 'profile' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+                  }`}>
+                    <Mic className="w-2.5 h-2.5" /> “Profile” · Alt+2
+                  </span>
                 </button>
 
                 <button
                   role="tab"
                   aria-selected={seekerTab === 'applications'}
                   onClick={() => setSeekerTab('applications')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 ${
+                  className={`cursor-pointer px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
                     seekerTab === 'applications'
                       ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
-                      : 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-300 hover:text-white bg-slate-950/60 hover:bg-slate-800 border border-slate-800'
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
                   <span>My Applications ({applications.length})</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+                    seekerTab === 'applications' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+                  }`}>
+                    <Mic className="w-2.5 h-2.5" /> “Applications” · Alt+3
+                  </span>
                 </button>
               </div>
 
-              {/* Voice Prompt in Job Seeker */}
-              <div className="text-xs text-slate-400 hidden sm:flex items-center gap-2">
-                <span>Say <strong className="text-amber-400">“Switch to Recruiter”</strong> to change portals</span>
+              {/* Quick Tab Cycle & Voice Prompts */}
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <button
+                  onClick={handleNextTab}
+                  className="cursor-pointer px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-amber-400 flex items-center gap-1.5 text-xs transition-colors"
+                  title="Cycle to next tab using voice or keyboard"
+                >
+                  <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Next Tab</span>
+                  <span className="font-mono text-amber-300 text-[10px] hidden sm:inline">(Say “Next Tab” · Alt+T)</span>
+                </button>
+                <span className="hidden md:inline text-slate-600">|</span>
+                <span className="hidden md:inline">Say <strong className="text-amber-400">“Recruiter”</strong> to change portal</span>
               </div>
             </div>
 
@@ -861,54 +1499,89 @@ export default function App() {
             {seekerTab === 'jobs' && (
               <div className="space-y-6">
                 {/* Search Bar & Filter Controls */}
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex-1 min-w-[280px] relative">
-                    <label htmlFor="search-input" className="sr-only">
-                      Search job postings by keyword or role
-                    </label>
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="search-input"
-                      type="text"
-                      placeholder='Search by role or say "Search React" / "Search Remote"...'
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-24 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-xs sm:text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200 px-2 py-1"
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex-1 min-w-[280px] relative">
+                      <label htmlFor="search-input" className="sr-only">
+                        Search job postings by keyword or role
+                      </label>
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="search-input"
+                        type="text"
+                        placeholder={t('searchPlaceholder', currentLanguage)}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-24 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 text-xs sm:text-sm focus:border-amber-400 focus:ring-1 focus:ring-amber-400"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200 px-2 py-1"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                      <select
+                        value={filterType}
+                        onChange={(e) => setFilterType(e.target.value)}
+                        aria-label="Filter by employment type"
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200 focus:border-amber-400"
                       >
-                        Clear
+                        <option value="all">{t('allJobTypes', currentLanguage)}</option>
+                        <option value="full-time">Full-time</option>
+                        <option value="part-time">Part-time</option>
+                        <option value="contract">Contract</option>
+                      </select>
+
+                      <button
+                        onClick={() => setRemoteOnly(!remoteOnly)}
+                        aria-pressed={remoteOnly}
+                        className={`px-3 py-2 rounded-xl border transition-colors ${
+                          remoteOnly
+                            ? 'bg-amber-400 text-slate-950 font-bold border-amber-300'
+                            : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
+                        }`}
+                      >
+                        {t('remoteOnly', currentLanguage)}
                       </button>
-                    )}
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-                    <select
-                      value={filterType}
-                      onChange={(e) => setFilterType(e.target.value)}
-                      aria-label="Filter by employment type"
-                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200 focus:border-amber-400"
-                    >
-                      <option value="all">All Job Types</option>
-                      <option value="full-time">Full-time</option>
-                      <option value="part-time">Part-time</option>
-                      <option value="contract">Contract</option>
-                    </select>
-
-                    <button
-                      onClick={() => setRemoteOnly(!remoteOnly)}
-                      aria-pressed={remoteOnly}
-                      className={`px-3 py-2 rounded-xl border transition-colors ${
-                        remoteOnly
-                          ? 'bg-amber-400 text-slate-950 font-bold border-amber-300'
-                          : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
-                      }`}
-                    >
-                      Remote Only
-                    </button>
+                  {/* Location & Country Filter Bar (India-first + Voice Country Detection) */}
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="text-slate-400 font-semibold flex items-center gap-1 mr-1">
+                      <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{t('location', currentLanguage)}:</span>
+                    </span>
+                    {[
+                      { label: '🇮🇳 India (All)', val: 'India' },
+                      { label: '🇮🇳 Bengaluru', val: 'Bengaluru' },
+                      { label: '🇮🇳 Pune', val: 'Pune' },
+                      { label: '🇮🇳 Hyderabad', val: 'Hyderabad' },
+                      { label: '🇮🇳 Delhi NCR', val: 'Delhi NCR' },
+                      { label: '🇮🇳 Chennai', val: 'Chennai' },
+                      { label: '🇺🇸 USA', val: 'USA' },
+                      { label: '🇩🇪 Germany', val: 'Germany' },
+                      { label: '🇬🇧 UK', val: 'UK' },
+                      { label: '🇨🇦 Canada', val: 'Canada' },
+                      { label: '🌍 All Locations', val: 'all' }
+                    ].map((loc) => (
+                      <button
+                        key={loc.val}
+                        onClick={() => handleCountryFilterChange(loc.val)}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all ${
+                          selectedCountry === loc.val
+                            ? 'bg-amber-400 text-slate-950 font-bold shadow-sm shadow-amber-400/20'
+                            : 'bg-slate-950 text-slate-300 border border-slate-800 hover:border-slate-600'
+                        }`}
+                      >
+                        {loc.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -917,18 +1590,20 @@ export default function App() {
                   {/* Left Column: Job Cards */}
                   <div className="lg:col-span-5 space-y-3 max-h-[75vh] overflow-y-auto pr-1">
                     <div className="flex items-center justify-between text-xs text-slate-400 pb-1">
-                      <span>Available Positions ({jobs.length})</span>
-                      <span className="font-mono text-emerald-400">0 Barrier Gateways</span>
+                      <span>{t('availablePositions', currentLanguage)} ({jobs.length})</span>
+                      <span className="font-mono text-emerald-400">
+                        {selectedCountry === 'all' ? 'All Locations' : selectedCountry}
+                      </span>
                     </div>
 
                     {jobs.length === 0 ? (
                       <div className="p-8 text-center bg-slate-900 rounded-2xl border border-slate-800 text-slate-400 text-xs">
-                        No jobs matched your search criteria.
+                        No jobs matched your search criteria in {selectedCountry}.
                         <button
-                          onClick={() => { setSearchQuery(''); setFilterType('all'); setRemoteOnly(false); }}
+                          onClick={() => { setSearchQuery(''); setFilterType('all'); setSelectedCountry('India'); setRemoteOnly(false); }}
                           className="mt-3 block mx-auto px-3 py-1.5 rounded-lg bg-amber-400 text-slate-950 font-bold text-xs"
                         >
-                          Reset Filters
+                          Show India Jobs
                         </button>
                       </div>
                     ) : (
@@ -1065,6 +1740,134 @@ export default function App() {
         onCorrectInteraction={handleCorrectInteraction}
         onClearRecentCommands={handleClearRecentCommands}
       />
+
+      {/* ========================================================================= */}
+      {/* FLOATING VOICE CONTROL & LIVE COMMAND BAR (ALWAYS ACCESSIBLE)              */}
+      {/* ========================================================================= */}
+      <aside
+        aria-label="Floating Voice Command Control Bar"
+        className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-4xl bg-slate-950/95 border border-amber-400/50 backdrop-blur-md rounded-2xl shadow-2xl p-3 text-slate-100 transition-all"
+      >
+        {micErrorMessage && (
+          <div className="mb-2 p-2 rounded-xl bg-rose-950/80 border border-rose-500/40 text-xs text-rose-200 flex items-center justify-between gap-2">
+            <span>⚠️ {micErrorMessage}</span>
+            <button
+              onClick={handleToggleVoice}
+              className="cursor-pointer px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold shrink-0 text-[11px]"
+            >
+              Retry Microphone
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          {/* Mic Toggle Button */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleToggleVoice}
+              aria-pressed={voiceActive}
+              aria-label={voiceActive ? "Turn off Voice Assistant" : "Turn on Voice Assistant"}
+              className={`cursor-pointer px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 border transition-all ${
+                voiceActive
+                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md shadow-amber-400/20 animate-pulse'
+                  : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-amber-400'
+              }`}
+            >
+              <Mic className={`w-4 h-4 ${voiceActive ? 'text-slate-950' : 'text-amber-400'}`} />
+              <span>{voiceActive ? 'Listening...' : 'Turn On Mic'}</span>
+              <kbd className={`px-1 rounded text-[10px] font-mono ${
+                voiceActive ? 'bg-amber-500 text-slate-950 border border-amber-600' : 'bg-slate-800 text-amber-300 border border-slate-700'
+              }`}>
+                Alt+M
+              </kbd>
+            </button>
+
+            {/* Live Audio / Sound wave feedback */}
+            {voiceActive && (
+              <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="w-1.5 h-3 bg-amber-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                <span className="w-1.5 h-4 bg-amber-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                <span className="w-1.5 h-2 bg-amber-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                <span className="text-[11px] font-mono text-emerald-400 font-semibold ml-1">Live (English)</span>
+              </div>
+            )}
+          </div>
+
+          {/* Real-Time Speech Heard Badge */}
+          <div className="flex-1 min-w-[200px] text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 truncate">
+            <span className="text-slate-400 font-medium shrink-0">Heard:</span>
+            {interimTranscript ? (
+              <span className="text-amber-300 font-mono italic animate-pulse truncate">
+                “{interimTranscript}...”
+              </span>
+            ) : lastTranscript ? (
+              <span className="text-emerald-300 font-mono font-semibold truncate">
+                “{lastTranscript}”
+              </span>
+            ) : (
+              <span className="text-slate-500 italic truncate">
+                {voiceActive ? 'Speak clearly: "jobs", "read", "apply", "job seeker"...' : 'Mic paused. Click "Turn On Mic" or type below'}
+              </span>
+            )}
+          </div>
+
+          {/* Quick Command Text Input & Run (Zero-Barrier fallback if mic is muted) */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (hudCommandInput.trim()) {
+                handleVoiceCommand(hudCommandInput.trim());
+                setHudCommandInput('');
+              }
+            }}
+            className="flex items-center gap-1.5 shrink-0"
+          >
+            <input
+              type="text"
+              value={hudCommandInput}
+              onChange={(e) => setHudCommandInput(e.target.value)}
+              placeholder="Type command (e.g. 'next tab', 'jobs', 'profile', 'apply')..."
+              className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 placeholder:text-slate-500 text-xs w-52 sm:w-64 focus:border-amber-400 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!hudCommandInput.trim()}
+              className="cursor-pointer px-3 py-1.5 rounded-xl bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs shrink-0 hover:bg-amber-300 transition-colors"
+            >
+              Run
+            </button>
+          </form>
+        </div>
+
+        {/* 1-Click Spoken Quick Chips including Tabs */}
+        <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center gap-1.5 overflow-x-auto text-[11px] pb-0.5 scrollbar-none">
+          <span className="text-slate-400 shrink-0 font-medium text-[10px]">Quick test:</span>
+          {[
+            { label: '“Next Tab” (Alt+T)', cmd: 'next tab' },
+            { label: '“Jobs Tab” (Alt+1)', cmd: 'jobs' },
+            { label: '“Profile Tab” (Alt+2)', cmd: 'profile' },
+            { label: '“Applications Tab” (Alt+3)', cmd: 'applications' },
+            { label: '“Job Seeker”', cmd: 'job seeker' },
+            { label: '“Recruiter”', cmd: 'recruiter' },
+            { label: '“Candidates”', cmd: 'candidates' },
+            { label: '“Requisitions”', cmd: 'requisitions' },
+            { label: '“Post Job”', cmd: 'post job' },
+            { label: '“Read Job”', cmd: 'read job' },
+            { label: '“Summarize”', cmd: 'summarize' },
+            { label: '“Apply Now”', cmd: 'apply now' },
+            { label: '“High Contrast”', cmd: 'high contrast' },
+            { label: '“Stop”', cmd: 'stop' }
+          ].map((chip) => (
+            <button
+              key={chip.cmd}
+              onClick={() => handleVoiceCommand(chip.cmd)}
+              className="cursor-pointer shrink-0 px-2 py-0.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-amber-300 border border-slate-800 hover:border-amber-400 font-mono transition-colors"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      </aside>
     </div>
   );
 }
