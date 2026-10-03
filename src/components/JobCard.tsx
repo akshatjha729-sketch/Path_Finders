@@ -10,6 +10,16 @@ interface JobCardProps {
   onReadAloud: () => void;
 }
 
+const getCountryFlag = (country?: string, location?: string) => {
+  const str = `${country || ''} ${location || ''}`.toLowerCase();
+  if (str.includes('india') || str.includes('bengaluru') || str.includes('pune') || str.includes('mumbai') || str.includes('delhi') || str.includes('hyderabad') || str.includes('chennai')) return '🇮🇳';
+  if (str.includes('usa') || str.includes('united states') || str.includes('san francisco')) return '🇺🇸';
+  if (str.includes('germany') || str.includes('berlin')) return '🇩🇪';
+  if (str.includes('uk') || str.includes('united kingdom') || str.includes('london')) return '🇬🇧';
+  if (str.includes('canada') || str.includes('toronto')) return '🇨🇦';
+  return '📍';
+};
+
 export const JobCard: React.FC<JobCardProps> = ({
   job,
   isSelected,
@@ -17,6 +27,8 @@ export const JobCard: React.FC<JobCardProps> = ({
   onQuickApply,
   onReadAloud,
 }) => {
+  const flag = getCountryFlag(job.country, job.location);
+
   return (
     <div
       role="article"
@@ -53,7 +65,10 @@ export const JobCard: React.FC<JobCardProps> = ({
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400 font-medium">
         <span className="text-slate-200 font-semibold">{job.company}</span>
         <span aria-hidden="true">·</span>
-        <span>{job.location}</span>
+        <span className="flex items-center gap-1">
+          <span>{flag}</span>
+          <span>{job.location}</span>
+        </span>
         <span aria-hidden="true">·</span>
         <span>{job.jobType}</span>
       </div>
