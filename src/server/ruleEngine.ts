@@ -87,11 +87,15 @@ export function localNlpParseVoiceCommand(
   rawTranscript: string,
   startTime: number
 ): VoiceCommandParseResult {
-  const text = rawTranscript.trim().toLowerCase();
+  const text = rawTranscript
+    .toLowerCase()
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   const latencyMs = Math.max(1, Math.round(performance.now() - startTime));
 
   // Home / First page navigation
-  if (/^(home|main\s*menu|start\s*page|first\s*page|back\s*to\s*home)$/i.test(text)) {
+  if (/^(home|main menu|start page|first page|back to home|landing|go to home)$/i.test(text)) {
     return {
       source: 'local-nlp-fallback',
       latencyMs,
@@ -102,8 +106,73 @@ export function localNlpParseVoiceCommand(
     };
   }
 
-  // Role Switching: "Job seeker" or "Recruiter" (single words or full phrases)
-  if (/^(recruiter|recruiter\s*mode|recruiter\s*portal|hiring)$/i.test(text) || /switch(\s*to)?\s*recruiter|i am a recruiter/i.test(text)) {
+  // Country & Location Voice Commands
+  if (/\b(india|bharat)\b/i.test(text) && /\b(job|jobs|work|opening|positions)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { country: 'India', keyword: '' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+  if (/\b(usa|america|united states|us)\b/i.test(text) && /\b(job|jobs|work)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { country: 'USA', keyword: '' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+  if (/\b(germany|deutschland|जर्मनी)\b/i.test(text) && /\b(job|jobs|naukri|काम|नौकरी|जॉब)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { country: 'Germany', keyword: '' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+  if (/\b(uk|united\s*kingdom|britain|ब्रिटेन)\b/i.test(text) && /\b(job|jobs|naukri|काम|नौकरी|जॉब)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { country: 'UK', keyword: '' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+  if (/\b(canada)\b/i.test(text) && /\b(job|jobs|work)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { country: 'Canada', keyword: '' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+  if (/\b(bengaluru|bangalore)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'search',
+      parameters: { keyword: 'Bengaluru', country: 'India' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  // Role Switching: "Job seeker" or "Recruiter" in English
+  if (
+    /^(recruiter|recruiter mode|recruiter portal|employer|hiring)$/i.test(text) ||
+    /\b(switch to recruiter|i am a recruiter|open recruiter|hiring portal)\b/i.test(text)
+  ) {
     return {
       source: 'local-nlp-fallback',
       latencyMs,
@@ -114,12 +183,137 @@ export function localNlpParseVoiceCommand(
     };
   }
 
-  if (/^(job\s*seeker|candidate|applicant|seeker|job\s*search)$/i.test(text) || /switch(\s*to)?\s*(job\s*seeker|candidate|applicant|seeker)|i am a job seeker/i.test(text)) {
+  if (
+    /^(job seeker|candidate|applicant|seeker|job seeker portal)$/i.test(text) ||
+    /\b(switch to job seeker|switch to candidate|i am a job seeker|open job seeker)\b/i.test(text)
+  ) {
     return {
       source: 'local-nlp-fallback',
       latencyMs,
       intent: 'switch_role',
       parameters: { role: 'job_seeker' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  // Tab Switching: Next/Previous tab, Numbered Tabs, and Direct Tabs
+  if (/\b(next tab|switch tab|cycle tab|change tab|forward tab|rotate tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { direction: 'next' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(previous tab|prev tab|back tab|last tab|prior tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { direction: 'previous' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(tab 1|tab one|first tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tabNumber: 1 },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(tab 2|tab two|second tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tabNumber: 2 },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(tab 3|tab three|third tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tabNumber: 3 },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(jobs|job board|open jobs|show jobs|browse jobs|positions|view jobs|listings|tab jobs|jobs tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'jobs' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(profile|my profile|candidate profile|applicant profile|edit profile|resume|my resume|cv|tab profile|profile tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'profile' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(applications|my applications|applied jobs|application status|submissions|tab applications|applications tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'applications' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(candidates|applicants|candidate applications|review candidates|applicant list|tab candidates|candidates tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'candidates' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(requisitions|job requisitions|active jobs|job postings|manage jobs|openings|tab requisitions|requisitions tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'requisitions' },
+      confidence: 0.99,
+      rawTranscript
+    };
+  }
+
+  if (/\b(post a job|post job|create job|new job|add job|publish job|tab post job|tab create job|create job tab|post job tab)\b/i.test(text)) {
+    return {
+      source: 'local-nlp-fallback',
+      latencyMs,
+      intent: 'switch_tab',
+      parameters: { tab: 'create_job' },
       confidence: 0.99,
       rawTranscript
     };
@@ -137,16 +331,38 @@ export function localNlpParseVoiceCommand(
     };
   }
 
-  // Pattern matching based on Voice Commands Reference (PPT Slide 4)
-  // "Search [keyword]"
-  const searchMatch = text.match(/^(?:search|find|filter|look for|show)\s*(?:for\s*)?(.+)$/i);
+  // Explicit Search Command (e.g. "search react", "find python", "look for typescript")
+  // Only matches when user explicitly uses search prefixes, and excludes tab names from search box!
+  const searchMatch = text.match(/^(?:search|find|filter|look for)\s*(?:for\s*)?(.+)$/i);
   if (searchMatch) {
+    const rawKeyword = searchMatch[1].trim();
+
+    // Guard: If keyword is a tab name, redirect to tab switch instead of filling search box
+    if (/^(jobs|job|job board|open jobs|positions|listings)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'jobs' }, confidence: 0.99, rawTranscript };
+    }
+    if (/^(profile|my profile|candidate profile|resume|cv)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'profile' }, confidence: 0.99, rawTranscript };
+    }
+    if (/^(applications|my applications|applied jobs|applied|submissions)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'applications' }, confidence: 0.99, rawTranscript };
+    }
+    if (/^(candidates|applicants|review candidates)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'candidates' }, confidence: 0.99, rawTranscript };
+    }
+    if (/^(requisitions|manage jobs|postings)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'requisitions' }, confidence: 0.99, rawTranscript };
+    }
+    if (/^(post job|create job|new job|add job)$/i.test(rawKeyword)) {
+      return { source: 'local-nlp-fallback', latencyMs, intent: 'switch_tab', parameters: { tab: 'create_job' }, confidence: 0.99, rawTranscript };
+    }
+
     return {
       source: 'local-nlp-fallback',
       latencyMs,
       intent: 'search',
-      parameters: { keyword: searchMatch[1].trim() },
-      confidence: 0.96,
+      parameters: { keyword: rawKeyword },
+      confidence: 0.98,
       rawTranscript
     };
   }
