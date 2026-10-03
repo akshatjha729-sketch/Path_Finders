@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Briefcase, Plus, Users, CheckCircle2, Clock, AlertTriangle, ShieldCheck, FileText, ChevronRight, X, Sparkles, MessageSquare } from 'lucide-react';
+import { Briefcase, Plus, Users, CheckCircle2, Clock, AlertTriangle, ShieldCheck, FileText, ChevronRight, X, Sparkles, MessageSquare, Mic, ArrowRight } from 'lucide-react';
 import { JobApplication, JobPosting } from '../types/index.ts';
 
 interface RecruiterDashboardProps {
@@ -111,42 +111,57 @@ export const RecruiterDashboard: React.FC<RecruiterDashboardProps> = ({
           </p>
         </div>
 
-        {/* Tab Controls */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs font-semibold">
+        {/* Tab Controls with Voice Dependencies */}
+        <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-950 rounded-xl border border-slate-800 text-xs font-semibold">
           <button
             onClick={() => setActiveTab('applications')}
-            className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+            className={`cursor-pointer px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
               activeTab === 'applications'
-                ? 'bg-amber-400 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-400 text-slate-950 shadow-sm font-bold'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-900'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
             <span>Candidate Applications ({applications.length})</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+              activeTab === 'applications' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+            }`}>
+              <Mic className="w-2.5 h-2.5" /> “Candidates” · Alt+1
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('requisitions')}
-            className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+            className={`cursor-pointer px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
               activeTab === 'requisitions'
-                ? 'bg-amber-400 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-400 text-slate-950 shadow-sm font-bold'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-900'
             }`}
           >
             <Briefcase className="w-3.5 h-3.5" />
             <span>Job Requisitions ({jobs.length})</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+              activeTab === 'requisitions' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+            }`}>
+              <Mic className="w-2.5 h-2.5" /> “Requisitions” · Alt+2
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('create_job')}
-            className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+            className={`cursor-pointer px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
               activeTab === 'create_job'
-                ? 'bg-amber-400 text-slate-950 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-400 text-slate-950 shadow-sm font-bold'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-900'
             }`}
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Post New Accessible Job</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold flex items-center gap-1 ${
+              activeTab === 'create_job' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-300'
+            }`}>
+              <Mic className="w-2.5 h-2.5" /> “Post Job” · Alt+3
+            </span>
           </button>
         </div>
       </div>
