@@ -31,11 +31,12 @@ export const api = {
     return res.json();
   },
 
-  async getJobs(query?: string, type?: string, remote?: boolean): Promise<JobPosting[]> {
+  async getJobs(query?: string, type?: string, remote?: boolean, country?: string): Promise<JobPosting[]> {
     const params = new URLSearchParams();
     if (query) params.append('q', query);
     if (type) params.append('type', type);
     if (remote) params.append('remote', 'true');
+    if (country) params.append('country', country);
     const res = await fetch(`/api/jobs?${params.toString()}`, {
       headers: getHeaders()
     });
