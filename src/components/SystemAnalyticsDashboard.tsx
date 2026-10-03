@@ -206,7 +206,7 @@ export const SystemAnalyticsDashboard: React.FC<SystemAnalyticsDashboardProps> =
           <div className="space-y-3 text-xs">
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center">
               <span className="text-slate-400">Primary Cloud AI Engine</span>
-              <span className="text-amber-400 font-mono font-semibold">Google Gemini 3.8 Flash (@google/genai)</span>
+              <span className="text-amber-400 font-mono font-semibold">NVIDIA NIM (meta/llama-3.2-11b-vision-instruct)</span>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex justify-between items-center">
